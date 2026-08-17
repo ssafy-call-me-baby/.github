@@ -115,7 +115,7 @@
 
 | 통화 화면 | 통화 흐름 GIF |
 | --- | --- |
-| `[화면 추가 예정]` | `[GIF 추가 예정]` |
+| <img src="../docs/assets/통화 화면.png"> | <img src="../docs/assets/통화 흐름.gif"> |
 
 ### 💬 AI 대화 주제 추천
 
@@ -123,7 +123,7 @@
 
 | 대화 주제 추천 화면 | AI 분석 GIF |
 | --- | --- |
-| `[화면 추가 예정]` | `[GIF 추가 예정]` |
+| <img src="../docs/assets/대화 주제 추천 화면.png"> | <img src="../docs/assets/대화 추천 AI.gif" |
 
 ### 🎨 부모·아이 공동 그림판
 
@@ -131,7 +131,7 @@
 
 | 공동 그림판 화면 | 그림판 동작 GIF |
 | --- | --- |
-| `[화면 추가 예정]` | `[GIF 추가 예정]` |
+| <img src="../docs/assets/공동 그림판 화면.png" | <img src="../docs/assets/그림판 동작.gif"> |
 
 ### 📝 통화 후 AI 일기
 
@@ -139,7 +139,7 @@
 
 | AI 일기 화면 | 일기 생성 GIF |
 | --- | --- |
-| `[화면 추가 예정]` | `[GIF 추가 예정]` |
+| <img src="../docs/assets/AI 일기 화면.png" | <img src="../docs/assets/일기 생성.gif"> |
 
 ### 👶 아이 프로필 및 관심사 관리
 
@@ -147,7 +147,7 @@
 
 | 아이 프로필 화면 | 관심사 관리 GIF |
 | --- | --- |
-| `[화면 추가 예정]` | `[GIF 추가 예정]` |
+| <img src="../docs/assets/아이 프로필 화면.png"> | <img src="../docs/assets/관심사 관리.gif"> |
 
 ### 🔐 소셜 로그인
 
