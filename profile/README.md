@@ -33,8 +33,9 @@
   - [🔬 핵심 기술 상세](#-핵심-기술-상세)
     - [실시간 통화와 AI 음성 분석 분리](#실시간-통화와-ai-음성-분석-분리)
     - [LiveKit 기반 공동 그림판](#livekit-기반-공동-그림판)
-    - [실시간 관심사 파이프라인](#실시간-관심사-파이프라인)
-    - [통화 후 비동기 일기 생성](#통화-후-비동기-일기-생성)
+    - [아동 음성 특화 STT 모델 파인튜닝](#아동-음성-특화-stt-모델-파인튜닝)
+    - [실시간 관심사 분석 파이프라인](#실시간-관심사-분석-파이프라인)
+    - [근거 기반 그림일기 생성 파이프라인](#근거-기반-그림일기-생성-파이프라인)
     - [인증 및 연결 보안](#인증-및-연결-보안)
   - [📚 프로젝트 산출물](#-프로젝트-산출물)
   - [📝 회고](#-회고)
@@ -65,44 +66,43 @@
 
 <table>
   <tr>
-    <td align="center" width="33%">
-      <img src="../docs/assets/team/profile-placeholder.svg" alt="팀원 1" width="140" /><br />
+    <td align="center" valign="top" width="33%" height="320">
+      <img src="../docs/assets/team/hyunjee-square.png" alt="강현지 프로필" width="140" height="140" /><br />
       <strong>강현지</strong><br />팀장 · AI<br />
-      <a href="https://github.com/">@hyunjeekang</a><br /><br />
-      한일1<br />한일2
+      <a href="https://github.com/hyunjeekang">@hyunjeekang</a><br /><br />
+      아동 특화 STT 모델 파인튜닝·서빙<br />실시간 관심사 분석·AI 그림일기 파이프라인<br />&nbsp;
     </td>
-    <td align="center" width="33%">
-      <img src="../docs/assets/team/LeeEojin.png" alt="팀원 2" width="140" /><br />
+    <td align="center" valign="top" width="33%" height="320">
+      <img src="../docs/assets/team/LeeEojin-square.png" alt="이어진 프로필" width="140" height="140" /><br />
       <strong>이어진</strong><br />BE · AI<br />
       <a href="https://github.com/">@win929</a><br /><br />
       소셜 로그인·JWT 인증 구현<br />LiveKit 통화 세션·Redis TTL 기반 재접속 복구<br />AI 그림일기 품질 평가·프롬프트 개선
     </td>
-    <td align="center" width="33%">
-      <img src="https://github.com/wo-oaw.png" alt="팀원 3" width="140" /><br />
+    <td align="center" valign="top" width="33%" height="320">
+      <img src="https://github.com/wo-oaw.png" alt="임건애 프로필" width="140" height="140" /><br />
       <strong>임건애</strong><br />Infra, BE<br />
       <a href="https://github.com/wo-oaw">@wo-oaw</a><br /><br />
-      Jenkins 기반 CI/CD·배포 인프라 구축<br/>
-      통화방·Redis 상태관리·그림일기 API
+      Jenkins 기반 CI/CD·배포 인프라 구축<br />통화방·Redis 상태관리·그림일기 API<br />&nbsp;
     </td>
   </tr>
   <tr>
-    <td align="center">
-      <img src="../docs/assets/team/parkkyuyeon.png.jpg" alt="팀원 4" width="140" /><br />
+    <td align="center" valign="top" width="33%" height="320">
+      <img src="../docs/assets/team/parkkyuyeon-square.png" alt="박규연 프로필" width="140" height="140" /><br />
       <strong>박규연</strong><br />FE<br />
       <a href="https://github.com/">@babagyuya</a><br /><br />
-      주요 페이지 UI/UX 구현<br />소셜 로그인 연동
+      주요 페이지 UI/UX 구현<br />소셜 로그인 연동<br />&nbsp;
     </td>
-    <td align="center">
-      <img src="../docs/assets/team/kimsujin.png" alt="팀원 5" width="140" /><br />
+    <td align="center" valign="top" width="33%" height="320">
+      <img src="../docs/assets/team/kimsujin.png" alt="김수진 프로필" width="140" height="140" /><br />
       <strong>김수진</strong><br />FE<br />
       <a href="https://github.com/soo83705-ui">@soo83705-ui</a><br /><br />
-      FE 영상통화<br />FE 동물필터 성능 개선
+      FE 영상통화<br />FE 동물필터 성능 개선<br />&nbsp;
     </td>
-    <td align="center">
-      <img src="../docs/assets/team/hyunmin.png" alt="팀원 6" width="140" /><br />
+    <td align="center" valign="top" width="33%" height="320">
+      <img src="../docs/assets/team/hyunmin.png" alt="오현민 프로필" width="140" height="140" /><br />
       <strong>오현민</strong><br />FE<br />
       <a href="https://github.com/">@github-id</a><br /><br />
-      WebRTC·MediaPipe 기반 실시간 미디어 기능 구현<br />UI/UX 설계
+      WebRTC·MediaPipe 기반 실시간 미디어 기능 구현<br />UI/UX 설계<br />&nbsp;
     </td>
   </tr>
 </table>
@@ -177,7 +177,8 @@
 | **Frontend** | <img src="https://img.shields.io/badge/React-18.3.1-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React 18.3.1" /> <img src="https://img.shields.io/badge/TypeScript-5.6.3-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript 5.6.3" /> <img src="https://img.shields.io/badge/React_Router-6.30.4-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white" alt="React Router 6.30.4" /> <img src="https://img.shields.io/badge/Vite-6.4.3-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite 6.4.3" /> <img src="https://img.shields.io/badge/MediaPipe_Tasks_Vision-1.0.0-0097A7?style=for-the-badge&logo=mediapipe&logoColor=white" alt="MediaPipe Tasks Vision 1.0.0" /> |
 | **Backend** | <img src="https://img.shields.io/badge/Java-21-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 21" /> <img src="https://img.shields.io/badge/Spring%20Boot-4.1.0-6DB33F?style=for-the-badge&logo=springboot&logoColor=white" alt="Spring Boot" /> <img src="https://img.shields.io/badge/Spring%20Data%20JPA-6DB33F?style=for-the-badge&logo=spring&logoColor=white" alt="Spring Data JPA" /> <img src="https://img.shields.io/badge/Spring%20Security-6DB33F?style=for-the-badge&logo=springsecurity&logoColor=white" alt="Spring Security" /> <img src="https://img.shields.io/badge/OAuth%202.0-3C3C3C?style=for-the-badge&logo=oauth&logoColor=white" /> <img src="https://img.shields.io/badge/Resource%20Server-6DB33F?style=for-the-badge&logo=springsecurity&logoColor=white" /> <img src="https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white" />
 | **Database** | <img src="https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white" alt="MySQL" /> <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white" alt="Redis" /> <img src="https://img.shields.io/badge/Flyway-CC0200?style=for-the-badge&logo=flyway&logoColor=white" alt="Flyway" /> |
-| **AI** | <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" /> <img src="https://img.shields.io/badge/faster--whisper--STT-412991?style=for-the-badge&logo=openai&logoColor=white" alt="faster-whisper" /> <img src="https://img.shields.io/badge/Kiwi-NLP-F5A623?style=for-the-badge" alt="Kiwi" /> <img src="https://img.shields.io/badge/Embeddings-multilingual--e5--small-7B61FF?style=for-the-badge" alt="Embeddings" /> <img src="https://img.shields.io/badge/GMS%20API-gpt--4.1-412991?style=for-the-badge&logo=openai&logoColor=white" alt="GMS API" /> |
+| **AI · STT** | <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11" /> <img src="https://img.shields.io/badge/FastAPI-0.140.13-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI 0.140.13" /> <img src="https://img.shields.io/badge/PyTorch-2.11.0-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch 2.11.0" /> <img src="https://img.shields.io/badge/Transformers-5.14.1-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Transformers 5.14.1" /> <img src="https://img.shields.io/badge/PEFT-LoRA-FF9D00?style=for-the-badge" alt="PEFT LoRA" /> <img src="https://img.shields.io/badge/Whisper-small%20v2-412991?style=for-the-badge&logo=openai&logoColor=white" alt="Whisper small v2" /> <img src="https://img.shields.io/badge/WebRTC%20VAD-2.0.14-333333?style=for-the-badge&logo=webrtc&logoColor=white" alt="WebRTC VAD 2.0.14" /> |
+| **AI · NLP & LLM** | <img src="https://img.shields.io/badge/Kiwi-0.23.2-F5A623?style=for-the-badge" alt="Kiwi 0.23.2" /> <img src="https://img.shields.io/badge/Sentence%20Transformers-5.6.1-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Sentence Transformers 5.6.1" /> <img src="https://img.shields.io/badge/multilingual--e5--small-Embeddings-7B61FF?style=for-the-badge" alt="multilingual-e5-small" /> <img src="https://img.shields.io/badge/GMS%20API-gpt--4.1-412991?style=for-the-badge&logo=openai&logoColor=white" alt="GMS API gpt-4.1" /> |
 | **Realtime** | <img src="https://img.shields.io/badge/WebRTC-333333?style=for-the-badge&logo=webrtc&logoColor=white" alt="WebRTC" /> <img src="https://img.shields.io/badge/LiveKit-111111?style=for-the-badge&logo=livekit&logoColor=white" alt="LiveKit" /> <img src="https://img.shields.io/badge/WebSocket-010101?style=for-the-badge&logo=socketdotio&logoColor=white" alt="WebSocket" /> |
 | **Infrastructure** | <img src="https://img.shields.io/badge/AWS%20EC2-FF9900?style=for-the-badge&logo=amazonec2&logoColor=white" alt="AWS EC2" /> <img src="https://img.shields.io/badge/GCP%20GPU%20Server-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" /> <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white"> <img src="https://img.shields.io/badge/Docker%20Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Compose" /> <img src="https://img.shields.io/badge/Jenkins-D24939?style=for-the-badge&logo=jenkins&logoColor=white"> <img src="https://img.shields.io/badge/Caddy-1F88C0?style=for-the-badge&logo=caddy&logoColor=white" alt="Caddy" /> <img src="https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white" alt="Vercel" /> <img src="https://img.shields.io/badge/GitLab%20Webhook-FC6D26?style=for-the-badge&logo=gitlab&logoColor=white"> |
 | **Storage & Tools** | <img src="https://img.shields.io/badge/Amazon%20S3-569A31?style=for-the-badge&logo=amazons3&logoColor=white" alt="Amazon S3" /> <img src="https://img.shields.io/badge/OpenAPI-6BA539?style=for-the-badge&logo=swagger&logoColor=white" alt="OpenAPI" /> <img src="https://img.shields.io/badge/Postman-FF6C37?style=for-the-badge&logo=postman&logoColor=white" alt="Postman" /> |
@@ -189,8 +190,8 @@
 - **Frontend**: React + TypeScript + Vite, Vercel 배포
 - **Application Server**: AWS EC2 Docker Compose 환경의 Caddy, LiveKit, Spring Boot, MySQL, Redis
 - **Real-time Media**: LiveKit Self-hosted SFU를 통한 WebRTC 전달
-- **STT Server**: GPU 서버의 LiveKit Agent + WebRTC VAD + faster-whisper 모델
-- **AI Pipeline**: Kiwi + multilingual-e5-small 관심사 분석, GMS API 일기 생성
+- **STT Server**: GCP GPU 서버의 LiveKit Agent + WebRTC VAD + Transformers FP16 기반 아동 특화 Whisper-small v2
+- **AI Pipeline**: Kiwi + 문맥 N-gram + multilingual-e5-small 관심사 분석, GMS API `gpt-4.1` 기반 그림일기 생성
 - **Object Storage**: Amazon S3 그림 저장
 
 ## 🗄 ERD
@@ -228,7 +229,6 @@
 
 LiveKit을 미디어 전달 계층으로 사용하고 STT Agent는 아이의 microphone track만 선택 구독하도록 구성했습니다. 통화 품질과 AI 분석 처리를 분리해 통화 흐름에 미치는 영향을 줄였습니다.
 
-
 ### LiveKit 기반 공동 그림판
 
 | 기술                           | 선택 및 활용 이유                                                    |
@@ -239,6 +239,7 @@ LiveKit을 미디어 전달 계층으로 사용하고 STT Agent는 아이의 mic
 |   LiveKit Client             | WebRTC 영상통화와 Data Packet 기반 실시간 데이터 통신을 하나의 Room에서 처리하기 위해 사용 |
 |   LiveKit Components React   | LiveKit의 Room·Participant·Track 상태를 React 컴포넌트와 연동하기 위해 사용    |
 
+
 LiveKit Data Packet을 활용해 별도의 WebSocket 서버 없이 영상통화에 참여한 부모와 아이의 그림판을 실시간으로 동기화했습니다.
 
 | 핵심 구현           | 적용 내용                                                        |
@@ -248,7 +249,7 @@ LiveKit Data Packet을 활용해 별도의 WebSocket 서버 없이 영상통화�
 |   선 데이터 묶음 전송   | 연속적으로 발생하는 선 데이터를 묶어 전송해 메시지 수와 통신량을 감소                      |
 |   재접속 상태 복구     | 연결 중단이나 새로고침 시 버전 기반 스냅샷을 비교해 최신 그림을 복구하고 양쪽 화면의 상태를 다시 동기화  |
 
-
+---
 
 ### MediaPipe 기반 동물 얼굴 필터
 
@@ -258,6 +259,7 @@ LiveKit Data Packet을 활용해 별도의 WebSocket 서버 없이 영상통화�
 |   TypeScript               | 얼굴 랜드마크, 필터 상태, 영상별 추론 상태를 타입으로 관리해 런타임 오류 가능성을 줄이기 위해 사용        |
 |   Vite                     | MediaPipe WASM을 사용하는 브라우저 기반 React 애플리케이션의 개발·빌드 환경으로 활용         |
 |   MediaPipe Tasks Vision   | 별도의 AI 서버 없이 브라우저에서 Face Landmarker를 실행해 실시간 얼굴 랜드마크를 추출하기 위해 사용 |
+
 
 MediaPipe Face Landmarker를 브라우저에서 실행해 별도의 AI 서버로 영상 프레임을 전송하지 않고 얼굴의 위치·크기·회전을 추적하여 동물 필터를 실시간으로 합성했습니다.
 
@@ -274,13 +276,45 @@ MediaPipe Face Landmarker를 브라우저에서 실행해 별도의 AI 서버로
 
 
 
-### 실시간 관심사 파이프라인
 
-STT 결과에 Kiwi 키워드 추출과 multilingual-e5-small 임베딩을 조합해 관심사 후보를 계산합니다. 키워드 일치와 의미 유사도를 함께 사용해 표현이 달라도 관련 관심사를 찾습니다.
+### 아동 음성 특화 STT 모델 파인튜닝
 
-### 통화 후 비동기 일기 생성
+범용 `openai/whisper-small`에 AI-Hub 아동 음성을 LoRA로 학습했습니다.
 
-통화 종료와 일기 생성을 분리해 종료 응답을 지연시키지 않습니다. 처리 상태와 실패 원인을 저장해 재생성·장애 추적이 가능하도록 했습니다.
+| 동일 7–10세 외부 평가 | 기본 Whisper-small | v1 | v2 |
+| :---: | :---: | :---: | :---: |
+| 학습 데이터 | - | 7–10세 15시간 | 7–10세 15시간 + 3–6세 15시간 |
+| CER | 13.22% | 8.98% | **8.65%** |
+
+동일한 7–10세 외부 평가에서 Whisper-small 대비 v2의 CER를 13.22%에서 8.65%로 **상대 34.6% 개선**했습니다. 또한 3–6세 데이터를 추가한 v2에서도 기존 7–10세 성능을 유지·개선해 연령 확장에 따른 성능 저하를 방지했습니다. 최종 모델은 GCP GPU 서버에서 Transformers FP16 기반 실시간 STT API로 적용했습니다.
+
+### 실시간 관심사 분석 파이프라인
+
+아이 STT를 Kiwi 직접·별칭 매칭, 문맥 N-gram, 카탈로그-`multilingual-e5-small` 의미 검색 순으로 분석합니다. 관심사 카탈로그는 `2019 개정 누리과정`, `2022 개정 초등학교 교육과정`, `어린이 미디어 이용 조사`를 참고해 서비스용으로 구성하고, AI-Hub 3–7세 자유대화 라벨 11,467건으로 실제 어휘와 별칭을 보강했습니다.
+
+```text
+확정 CHILD STT
+  → Kiwi 직접 매칭 → 문맥 N-gram → E5 의미 검색
+  → 부정·중복·쿨다운 필터링
+  → Redis 세션 누적 → SSE 토픽 카드 → 후속 질문 3개
+```
+
+추천은 직접 매칭 → 문맥 매칭 → 의미 매칭 순으로 우선하며, 통화 후 반복·긍정·부모 선택 근거를 종합해 관심사 후보를 제안합니다.
+
+### 근거 기반 그림일기 생성 파이프라인
+
+통화 종료 후 확정 STT·부모가 선택한 토픽·부모 메모를 근거로 GMS API의 `gpt-4.1`이 그림일기를 생성합니다.
+
+```text
+확정 STT + 선택 토픽 + 부모 메모
+  → 개인정보 제거·입력 검증
+  → CHILD 발화 기반 사건 추출
+  → gpt-4.1 그림일기 생성
+  → JSON Schema·378자·안전성·발화 근거 검증
+  → 실패 시 1회 보정 또는 저장 중단
+```
+
+아이 발화에 없는 사실이 추가되지 않도록 문장별 근거를 검증하고, 외부 API 전송 전 개인정보를 마스킹했습니다.
 
 ### 인증 및 연결 보안
 
