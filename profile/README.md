@@ -3,10 +3,10 @@
 > 부모와 아이의 일상을 연결하는 AI 기반 실시간 영상통화 서비스
 
 <p align="center">
-  <img src="../docs/assets/logo-placeholder.svg" alt="Call Me Baby" width="280" />
+  <img src="../docs/assets/logo.png" alt="Call Me Baby" width="280" />
 </p>
 
-<p align="center"><strong>아이의 오늘을 듣고, 이해하고, 함께 기록하는 AI 육아 동반자</strong></p>
+<p align="center"><strong>아이의 오늘을 듣고, 이해하고, 함께 기록하는 AI 통화 서비스</strong></p>
 
 ---
 
@@ -25,7 +25,6 @@
     - [📝 통화 후 AI 일기](#-통화-후-ai-일기)
     - [👶 아이 프로필 및 관심사 관리](#-아이-프로필-및-관심사-관리)
     - [🔐 소셜 로그인](#-소셜-로그인)
-  - [🎬 시연 영상](#-시연-영상)
   - [🛠 기술 스택](#-기술-스택)
   - [🏗 시스템 아키텍처](#-시스템-아키텍처)
   - [🗄 ERD](#-erd)
@@ -33,11 +32,11 @@
   - [🔬 핵심 기술 상세](#-핵심-기술-상세)
     - [실시간 통화와 AI 음성 분석 분리](#실시간-통화와-ai-음성-분석-분리)
     - [LiveKit 기반 공동 그림판](#livekit-기반-공동-그림판)
+    - [MediaPipe 기반 동물 얼굴 필터](#mediapipe-기반-동물-얼굴-필터)
     - [아동 음성 특화 STT 모델 파인튜닝](#아동-음성-특화-stt-모델-파인튜닝)
     - [실시간 관심사 분석 파이프라인](#실시간-관심사-분석-파이프라인)
     - [근거 기반 그림일기 생성 파이프라인](#근거-기반-그림일기-생성-파이프라인)
     - [인증 및 연결 보안](#인증-및-연결-보안)
-  - [📚 프로젝트 산출물](#-프로젝트-산출물)
   - [📝 회고](#-회고)
 
 ## 🍼 서비스 소개
@@ -157,19 +156,6 @@
 | --- | --- |
 | `[화면 추가 예정]` | `[GIF 추가 예정]` |
 
-## 🎬 시연 영상
-
-> 전체 서비스 흐름 영상과 기능별 GIF는 추후 추가 예정입니다.
-
-| 구분 | 자료 |
-| --- | --- |
-| 전체 시연 영상 | `[YouTube 또는 Google Drive 링크 추가 예정]` |
-| 로그인 및 아이 등록 | `[GIF 추가 예정]` |
-| 통화방 생성 및 입장 | `[GIF 추가 예정]` |
-| AI 대화 주제 추천 | `[GIF 추가 예정]` |
-| 공동 그림판 | `[GIF 추가 예정]` |
-| 통화 후 AI 일기 | `[GIF 추가 예정]` |
-
 ## 🛠 기술 스택
 
 | 분류 | 기술 |
@@ -208,12 +194,9 @@
 
 ## 📡 API 명세
 
-- [REST API OpenAPI](../docs/api/openapi.yaml)
-- [API 안내](../docs/api/README.md)
-- [실시간 통신 계약](../docs/realtime/REALTIME_CONTRACT.md)
-- [내부 AI API](../docs/api/ai-internal-openapi.yaml)
-- [내부 Realtime API](../docs/api/realtime-internal-openapi.yaml)
-- [Postman 테스트 문서](../docs/postman/README.md)
+- [REST API OpenAPI](./openapi.yaml)
+- [내부 AI API OpenAPI](./ai-internal-openapi.yaml)
+- [내부 Realtime API OpenAPI](./realtime-internal-openapi.yaml)
 
 | 영역 | 대표 기능 |
 | --- | --- |
@@ -323,17 +306,6 @@ MediaPipe Face Landmarker를 브라우저에서 실행해 별도의 AI 서버로
 - Caddy를 통한 HTTPS/WSS 통합 라우팅
 - 운영 로그에 STT 원문·사용자 이름·토큰 등 민감 정보 미기록
 
-## 📚 프로젝트 산출물
-
-| 산출물 | 링크 |
-| --- | --- |
-| 요구사항 명세서 | `[링크 추가 예정]` |
-| 화면 설계서 | `[링크 추가 예정]` |
-| API 명세서 | [OpenAPI](../docs/api/openapi.yaml) |
-| ERD | [이미지](../docs/assets/erd.png) |
-| 시스템 아키텍처 | [이미지](../docs/assets/system-architecture.png) |
-| 시연 시나리오 | [문서](../docs/demo-stt-interest-drawing-scenario.md) |
-
 ## 📝 회고
 
 * **잘한 점:**
@@ -344,4 +316,3 @@ MediaPipe Face Landmarker를 브라우저에서 실행해 별도의 AI 서버로
 
 * **배운 점과 개선 방향:**
   이번 프로젝트를 통해 서비스를 완성하는 데에는 단순한 기능 구현뿐만 아니라 **사용자 경험, 예외 상황 처리, 서비스 안정성, 발표 환경까지 고려한 전체적인 준비가 필요하다**는 것을 배웠다. 특히 영상통화와 같이 네트워크 상태나 외부 환경의 영향을 많이 받는 기능은 정상 동작만 확인하는 것이 아니라 연결 끊김, 새로고침, 재접속 등 다양한 상황을 미리 고려해야 한다는 것을 경험했다. 앞으로는 개발 단계에서부터 예외 상황과 장애 상황을 더 구체적으로 정의하고 테스트 케이스를 작성하며, 최종 발표 전에는 실제 발표 환경을 기준으로 여러 차례 리허설을 진행할 예정이다. 또한 실시간 시연이 필요한 프로젝트에서는 문제가 발생하더라도 발표 흐름이 끊기지 않도록 **백업 영상과 대체 시연 방법을 함께 준비하는 습관**을 갖고자 한다.
-

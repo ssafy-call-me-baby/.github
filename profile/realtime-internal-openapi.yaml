@@ -1,0 +1,188 @@
+openapi: 3.1.0
+info:
+  title: CallMeBaby Realtime Agent Internal API
+  version: 1.0.0
+  description: |
+    LiveKit Agent가 Spring Boot에 확정 아이 STT를 전달하는 내부 계약입니다.
+    Spring은 통화방과 아이의 일치 여부를 확인하고 ACTIVE 관심사를 결합한 뒤 AI 토픽 API를 호출합니다.
+
+    브라우저에서 호출하지 않으며 STT 원문과 내부 API Key를 로그에 남기지 않습니다.
+servers:
+  - url: http://localhost:8080
+    description: 로컬 Spring API
+  - url: http://backend:8080
+    description: 내부 컨테이너 네트워크
+security:
+  - internalApiKey: []
+paths:
+  /internal/call-rooms/{callRoomId}/stt-events:
+    post:
+      operationId: processRealtimeStt
+      summary: 확정 STT 저장 및 아이 발화 토픽 분석 요청
+      description: |
+        WAITING 또는 ACTIVE 통화방의 확정 CHILD/PARENT STT를 임시 저장합니다.
+        CHILD 발화만 AI 토픽 분석에 사용하며 PARENT 발화는 저장 후 빈 토픽 결과를 반환합니다.
+        AI의 `realtimePromptEligible=true` 토픽만 `eligibleTopics`로 반환합니다.
+        `eventId` 중복 판정은 AI 토픽 세션이 담당합니다.
+      parameters:
+        - $ref: '#/components/parameters/CallRoomId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SttEventRequest'
+            example:
+              schemaVersion: '1.0'
+              eventId: stt-001
+              childId: 7
+              utteranceIndex: 3
+              speaker: CHILD
+              isFinal: true
+              text: 나는 공룡이 좋아
+      responses:
+        '200':
+          description: AI 토픽 분석 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProcessSttEventResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AiUnavailable'
+components:
+  securitySchemes:
+    internalApiKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Api-Key
+      description: LiveKit Agent와 Spring 사이의 내부 인증 키
+  parameters:
+    CallRoomId:
+      name: callRoomId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+  schemas:
+    SttEventRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, eventId, childId, utteranceIndex, speaker, isFinal, text]
+      properties:
+        schemaVersion:
+          type: string
+          const: '1.0'
+        eventId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: STT 재전송에 사용하는 멱등 식별자
+        childId:
+          type: integer
+          minimum: 1
+        utteranceIndex:
+          type: integer
+          minimum: 0
+        speaker:
+          type: string
+          enum: [CHILD, PARENT]
+        isFinal:
+          type: boolean
+          const: true
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    ProcessSttEventResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/ProcessSttEventData'
+        error:
+          type: 'null'
+    ProcessSttEventData:
+      type: object
+      additionalProperties: false
+      required: [callRoomId, childId, eventId, duplicateEvent, eligibleTopics]
+      properties:
+        callRoomId:
+          type: integer
+          minimum: 1
+        childId:
+          type: integer
+          minimum: 1
+        eventId:
+          type: string
+        duplicateEvent:
+          type: boolean
+        eligibleTopics:
+          type: array
+          items:
+            $ref: '#/components/schemas/EligibleTopic'
+    EligibleTopic:
+      type: object
+      additionalProperties: false
+      required: [topicKey, topicName, promptText]
+      properties:
+        topicKey:
+          type: string
+        topicName:
+          type: string
+        promptText:
+          type: string
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success:
+          type: boolean
+          const: false
+        data:
+          type: 'null'
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}
+  responses:
+    BadRequest:
+      description: 입력 검증 실패 또는 처리할 수 없는 통화 상태
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: 내부 API Key 누락 또는 불일치
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 통화방이 없거나 통화방과 아이가 일치하지 않음
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    AiUnavailable:
+      description: AI timeout 또는 AI API 장애
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

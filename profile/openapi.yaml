@@ -1,0 +1,1861 @@
+openapi: 3.1.0
+info:
+  title: CallMeBaby API
+  version: 1.0.0
+  license:
+    name: Private MVP Project
+    identifier: Proprietary
+  description: |
+    CallMeBaby의 프론트엔드와 Spring Boot 백엔드가 공유하는 API 계약입니다.
+    일반 API는 JSON request/response를 사용하며, OAuth 인증 완료 후 Refresh Token은 HttpOnly Cookie로 전달합니다.
+    S3 파일 업로드만 presigned URL에 바이너리를 PUT합니다.
+servers:
+  - url: http://localhost:8080/api
+    description: Local API base path for Postman testing
+tags:
+  - name: Auth
+    description: 카카오·네이버·구글 OAuth 로그인과 토큰 관리
+  - name: Parent
+    description: 로그인한 부모 계정 관리
+  - name: Children
+    description: 아이 프로필 관리
+  - name: Profile Images
+    description: Default profile image presigned URL API
+  - name: Interests
+    description: 기본 관심사와 아이별 관심사 관리
+  - name: Call Rooms
+    description: 통화방과 초대 링크 관리
+  - name: Drawing
+    description: 그림 주제와 캔버스·S3 그림 관리
+  - name: Conversation Suggestions
+    description: AI 대화 질문 제안 관리
+  - name: Diaries
+    description: 그림일기와 부모 메모 관리
+  - name: Internal
+    description: LiveKit webhook과 서버 상태 확인
+security:
+  - bearerAuth: []
+paths:
+  /auth/oauth/{provider}/authorize:
+    parameters:
+      - { $ref: '#/components/parameters/OAuthProvider' }
+    get:
+      tags: [Auth]
+      operationId: startOAuthLogin
+      summary: OAuth 로그인 시작
+      security: []
+      responses:
+        '302': { $ref: '#/components/responses/OAuthRedirect' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/oauth/{provider}/callback:
+    parameters:
+      - { $ref: '#/components/parameters/OAuthProvider' }
+      - name: code
+        in: query
+        required: false
+        schema: { type: string }
+      - name: state
+        in: query
+        required: false
+        schema: { type: string }
+      - name: error
+        in: query
+        required: false
+        schema: { type: string }
+    get:
+      tags: [Auth]
+      operationId: handleOAuthCallback
+      summary: OAuth callback 처리
+      security: []
+      responses:
+        '302': { $ref: '#/components/responses/OAuthRedirect' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/oauth/exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeOAuthLoginCode
+      summary: OAuth 로그인 완료 및 자체 토큰 발급
+      description: callback이 전달한 일회용 loginCode를 Access Token과 Refresh Token으로 교환합니다.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OAuthExchangeRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/AuthSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/csrf:
+    get:
+      tags: [Auth]
+      operationId: getCsrfToken
+      summary: CSRF 토큰 발급
+      description: Postman 또는 브라우저 클라이언트가 CookieCsrfTokenRepository 기반 요청을 준비할 때 XSRF-TOKEN Cookie와 요청 헤더 이름을 확인합니다.
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/CsrfTokenSuccess' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshAccessToken
+      summary: 액세스 토큰 재발급
+      description: HttpOnly refresh_token cookie를 검증하고 기존 토큰을 폐기한 뒤 회전된 새 Cookie와 Access Token을 발급합니다. 이미 폐기된 토큰의 재사용은 REFRESH_TOKEN_REUSED 오류로 거절합니다.
+      security:
+        - refreshTokenCookie: []
+      responses:
+        '200': { $ref: '#/components/responses/TokenSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: 로그아웃
+      description: HttpOnly refresh_token cookie를 폐기 상태로 기록하고 Cookie를 만료시킵니다.
+      security:
+        - refreshTokenCookie: []
+      responses:
+        '204': { $ref: '#/components/responses/LogoutSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /parents/me:
+    get:
+      tags: [Parent]
+      operationId: getMyProfile
+      summary: 회원 정보 조회
+      responses:
+        '200': { $ref: '#/components/responses/ParentSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Parent]
+      operationId: updateMyProfile
+      summary: 회원 정보 수정
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ParentPatchRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ParentSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Parent]
+      operationId: deleteMyAccount
+      summary: 회원 탈퇴 및 계정 비활성화
+      description: 계정 데이터를 보존한 채 accountStatus를 false로 변경하고 모든 Refresh Token을 폐기합니다.
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /children:
+    get:
+      tags: [Children]
+      operationId: getChildren
+      summary: 아이 목록 조회
+      responses:
+        '200': { $ref: '#/components/responses/ChildListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Children]
+      operationId: createChild
+      summary: 아이 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChildCreateRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/ChildSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /children/{childId}:
+    parameters:
+      - { $ref: '#/components/parameters/ChildId' }
+    get:
+      tags: [Children]
+      operationId: getChild
+      summary: 아이 상세 조회
+      responses:
+        '200': { $ref: '#/components/responses/ChildSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Children]
+      operationId: updateChild
+      summary: 아이 수정
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChildPatchRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ChildSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Children]
+      operationId: deleteChild
+      summary: 아이 삭제
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /profile-images/defaults:
+    get:
+      tags: [Profile Images]
+      operationId: getDefaultProfileImages
+      summary: Get default profile images
+      description: Returns server-allowed default profile image object keys with short-lived S3 presigned GET URLs.
+      responses:
+        '200': { $ref: '#/components/responses/DefaultProfileImageListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /interests:
+    get:
+      tags: [Interests]
+      operationId: getInterests
+      summary: 기본 관심사 조회
+      parameters:
+        - name: default
+          in: query
+          required: false
+          schema: { type: boolean, default: true }
+        - name: active
+          in: query
+          required: false
+          schema: { type: boolean, default: true }
+      responses:
+        '200': { $ref: '#/components/responses/InterestListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /children/{childId}/interests:
+    parameters:
+      - { $ref: '#/components/parameters/ChildId' }
+    get:
+      tags: [Interests]
+      operationId: getChildInterests
+      summary: 아이 관심사 조회
+      responses:
+        '200': { $ref: '#/components/responses/ChildInterestsSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Interests]
+      operationId: replaceChildInterests
+      summary: 아이 관심사 전체 변경
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplaceInterestsRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ChildInterestsSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /children/{childId}/interest-suggestions:
+    parameters:
+      - { $ref: '#/components/parameters/ChildId' }
+    get:
+      tags: [Interests]
+      operationId: getInterestSuggestions
+      summary: AI 발견 관심사 조회
+      responses:
+        '200': { $ref: '#/components/responses/InterestSuggestionListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /children/{childId}/interest-suggestions/{interestId}:
+    parameters:
+      - { $ref: '#/components/parameters/ChildId' }
+      - { $ref: '#/components/parameters/InterestId' }
+    patch:
+      tags: [Interests]
+      operationId: decideInterestSuggestion
+      summary: AI 발견 관심사 승인·거절
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InterestSuggestionDecisionRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/InterestSuggestionSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms:
+    post:
+      tags: [Call Rooms]
+      operationId: createCallRoom
+      summary: 통화방 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallRoomCreateRequest' }
+      responses:
+        '201': { $ref: '#/components/responses/CallRoomCreateSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/reconnect:
+    post:
+      tags: [Call Rooms]
+      operationId: reconnectCallRoom
+      summary: 비정상 종료 통화방 재접속
+      description: |
+        인증된 보호자가 아이를 선택해 가장 최근의 WAITING 또는 ACTIVE 통화방을 복구합니다.
+        기존 통화방이 있으면 새 방을 만들지 않고 같은 방의 초대 정보와 새 부모 LiveKit 토큰을 반환합니다.
+        LiveKit에 실제 아이 참가자가 없는데 Redis에 stale 상태가 남은 경우 해당 상태를 보정합니다.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallRoomCreateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/CallRoomCreateSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/retry:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Call Rooms]
+      operationId: retryCallRoom
+      summary: 통화방 초대 링크 재생성
+      description: 인증된 보호자가 소유한 WAITING, CANCELLED 또는 FAILED 통화방의 초대 링크를 새로 발급합니다. ACTIVE 통화방이나 다른 진행 중인 통화방이 있으면 재생성하지 않습니다.
+      security:
+        - bearerAuth: []
+      responses:
+        '201': { $ref: '#/components/responses/CallRoomCreateSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    get:
+      tags: [Call Rooms]
+      operationId: getCallRoom
+      summary: 통화방 정보 조회
+      responses:
+        '200': { $ref: '#/components/responses/CallRoomSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-invites/{inviteToken}:
+    parameters:
+      - { $ref: '#/components/parameters/InviteToken' }
+    get:
+      tags: [Call Rooms]
+      operationId: validateCallInvite
+      summary: 초대 링크 유효성 확인
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/CallInviteSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-invites/{inviteToken}/join:
+    parameters:
+      - { $ref: '#/components/parameters/InviteToken' }
+    post:
+      tags: [Call Rooms]
+      operationId: joinCallRoomAsChild
+      summary: 아이의 통화방 참여
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/ChildJoinSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-invites/guest-session/livekit-token:
+    post:
+      tags: [Call Rooms]
+      operationId: issueGuestLiveKitToken
+      summary: 아이 게스트 세션 기반 LiveKit 토큰 재발급
+      description: |
+        The child sends the guest session token returned by the invite join endpoint
+        in the X-Guest-Session-Token header after a page refresh or network reconnect.
+        The server validates the Redis session, its call-room/child binding, and that
+        the room is WAITING or ACTIVE before issuing a CHILD LiveKit token.
+      security: []
+      parameters:
+        - in: header
+          name: X-Guest-Session-Token
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200': { $ref: '#/components/responses/LiveKitTokenSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/livekit-token:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Call Rooms]
+      operationId: issueLiveKitToken
+      summary: LiveKit 토큰 재발급
+      description: 인증된 부모가 자신이 소유한 대기 중 또는 진행 중인 통화방에 다시 입장할 때 부모용 LiveKit 토큰을 재발급합니다.
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { $ref: '#/components/responses/LiveKitTokenSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/cancel:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Call Rooms]
+      operationId: cancelCallRoom
+      summary: 통화방 취소
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallRoomReasonRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/CallRoomStatusSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/end:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Call Rooms]
+      operationId: endCallRoom
+      summary: 통화방 종료
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CallRoomReasonRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/CallRoomStatusSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /call-rooms/{callRoomId}/interest-analysis:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    get:
+      tags: [Interests]
+      operationId: getPostCallInterestAnalysis
+      summary: 통화 후 관심사 분석 상태 조회
+      description: 통화방별 Redis 임시 분석 상태와 후보 조회
+      responses:
+        '200': { $ref: '#/components/responses/PostCallInterestAnalysisSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/interest-analysis/decision:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    put:
+      tags: [Interests]
+      operationId: decidePostCallInterestAnalysis
+      summary: 통화 후 관심사 후보 일괄 결정
+      description: 선택 결과를 반영하고 통화방별 Redis 임시 상태 삭제
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostCallInterestDecisionRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/PostCallInterestAnalysisSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/interest-analysis/dismiss:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Interests]
+      operationId: dismissPostCallInterestAnalysis
+      summary: 통화 후 관심사 분석 화면 종료
+      description: 미선택 후보를 정리하고 통화방별 Redis 임시 상태 삭제
+      responses:
+        '200': { $ref: '#/components/responses/PostCallInterestAnalysisSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /call-rooms/{callRoomId}/canvas-snapshot:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    put:
+      tags: [Drawing]
+      operationId: saveCanvasSnapshot
+      summary: 캔버스 스냅샷 저장
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CanvasSnapshotRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/CanvasSavedSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    get:
+      tags: [Drawing]
+      operationId: getCanvasSnapshot
+      summary: 캔버스 스냅샷 조회
+      responses:
+        '200': { $ref: '#/components/responses/CanvasSnapshotSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/drawing/upload-url:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Drawing]
+      operationId: issueDrawingUploadUrl
+      summary: S3 업로드 URL 발급
+      description: 서버가 계산한 통화 시간이 60초 미만이면 CALL_TOO_SHORT를 반환하고 최종 그림 업로드 URL을 발급하지 않습니다. 통화 중 요청이어도 현재까지의 시간이 60초 미만이면 거절합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DrawingUploadUrlRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/DrawingUploadUrlSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/drawing:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    put:
+      tags: [Drawing]
+      operationId: confirmDrawing
+      summary: 최종 그림 확정
+      description: 서버가 계산한 통화 시간이 60초 미만이면 CALL_TOO_SHORT를 반환하며 S3 최종 그림과 Diary를 저장하지 않습니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmDrawingRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/DrawingSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /call-rooms/{callRoomId}/conversation-suggestions:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    get:
+      tags: [Conversation Suggestions]
+      operationId: getConversationSuggestions
+      summary: 현재 대화 제안 조회
+      responses:
+        '200': { $ref: '#/components/responses/SuggestionListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/conversation-suggestions/{suggestionId}:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+      - { $ref: '#/components/parameters/SuggestionId' }
+    patch:
+      tags: [Conversation Suggestions]
+      operationId: updateConversationSuggestion
+      summary: 제안 선택·숨기기
+      description: 부모 화면에서 노출 기록을 완료한 제안만 선택하거나 숨길 수 있습니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SuggestionStatusRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/SuggestionSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/conversation-suggestions/{suggestionId}/exposure:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+      - { $ref: '#/components/parameters/SuggestionId' }
+    post:
+      tags: [Conversation Suggestions]
+      operationId: markConversationSuggestionExposed
+      summary: 제안 화면 노출 기록
+      description: |
+        부모 화면에 제안이 실제로 렌더링된 뒤 호출합니다.
+        Spring은 이 요청을 AI 내부 `/prompts`에 전달하며 suggestionId를 promptId 멱등 키로 사용합니다.
+      responses:
+        '200': { $ref: '#/components/responses/SuggestionSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/used-suggestions:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    get:
+      tags: [Conversation Suggestions]
+      operationId: getUsedSuggestions
+      summary: 사용한 제안 목록 조회
+      responses:
+        '200': { $ref: '#/components/responses/SuggestionListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/events:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    get:
+      tags: [Conversation Suggestions]
+      operationId: subscribeCallRoomEvents
+      summary: 통화방 실시간 이벤트 구독
+      description: |
+        부모 참가자가 fetch streaming 방식으로 연결하는 SSE endpoint입니다.
+        새 AI 대화 제안은 이 연결을 통해 전달하며, 질문 선택·숨기기는 REST API를 사용합니다.
+        브라우저 기본 EventSource 대신 Authorization Bearer header를 설정할 수 있는 fetch 기반 클라이언트를 사용합니다.
+      responses:
+        '200':
+          description: 통화방 실시간 이벤트 스트림
+          content:
+            text/event-stream:
+              schema: { type: string }
+              examples:
+                conversationSuggestionCreated:
+                  value: |
+                    id: evt_sug_101
+                    event: CONVERSATION_SUGGESTION_CREATED
+                    data: {"callRoomId":15,"suggestionId":"sug_101","suggestionType":"TOPIC_CONFIRMATION","question":"공룡 이야기를 더 이어가 볼까요?","topicKey":"DINOSAURS","topicName":"공룡","matchType":"DIRECT","semanticSimilarity":null,"priority":330,"evidenceText":"티라노사우루스가 제일 좋아","createdAt":"2026-08-06T00:00:00Z","exposedAt":null,"expiresAt":"2026-08-06T00:00:20Z"}
+
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /diaries:
+    get:
+      tags: [Diaries]
+      operationId: getParentDiaries
+      summary: 보호자의 그림일기 목록 조회
+      description: 인증된 보호자가 소유한 모든 아이의 그림일기를 조회합니다. childId와 date는 각각 또는 함께 사용할 수 있습니다.
+      parameters:
+        - name: childId
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 1 }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200': { $ref: '#/components/responses/DiaryListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /children/{childId}/diaries:
+    parameters:
+      - { $ref: '#/components/parameters/ChildId' }
+    get:
+      tags: [Diaries]
+      operationId: getDiaries
+      summary: 그림일기 목록 조회
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200': { $ref: '#/components/responses/DiaryListSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /diaries/{diaryId}:
+    parameters:
+      - { $ref: '#/components/parameters/DiaryId' }
+    patch:
+      tags: [Diaries]
+      operationId: updateDiary
+      summary: 그림일기 본문 수정
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiaryUpdateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/DiarySuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    get:
+      tags: [Diaries]
+      operationId: getDiary
+      summary: 그림일기 상세 조회
+      responses:
+        '200': { $ref: '#/components/responses/DiarySuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Diaries]
+      operationId: deleteDiary
+      summary: 그림일기 삭제
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /call-rooms/{callRoomId}/diary-generation:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Diaries]
+      operationId: requestDiaryGeneration
+      summary: 그림일기 생성 요청
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiaryGenerationRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/DiaryGenerationAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /diaries/{diaryId}/retry:
+    parameters:
+      - { $ref: '#/components/parameters/DiaryId' }
+    post:
+      tags: [Diaries]
+      operationId: retryDiaryGeneration
+      summary: 그림일기 생성 재시도
+      responses:
+        '202': { $ref: '#/components/responses/DiaryStatusAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /diaries/{diaryId}/regenerate:
+    parameters:
+      - { $ref: '#/components/parameters/DiaryId' }
+    post:
+      tags: [Diaries]
+      operationId: regenerateDiary
+      description: COMPLETED 그림일기의 전사문을 Redis에 임시 보관하고 10분 이내 최대 3회 재생성합니다.
+      summary: 그림일기 재생성
+      responses:
+        '202': { $ref: '#/components/responses/DiaryStatusAccepted' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '410': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /diaries/{diaryId}/confirm:
+    parameters:
+      - { $ref: '#/components/parameters/DiaryId' }
+    post:
+      tags: [Diaries]
+      operationId: confirmDiary
+      summary: 그림일기 확정
+      responses:
+        '200': { $ref: '#/components/responses/DiaryStatusSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /diaries/{diaryId}/memo:
+    parameters:
+      - { $ref: '#/components/parameters/DiaryId' }
+    get:
+      tags: [Diaries]
+      operationId: getDiaryMemo
+      summary: 부모 메모 조회
+      responses:
+        '200': { $ref: '#/components/responses/MemoSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      tags: [Diaries]
+      operationId: saveDiaryMemo
+      summary: 부모 메모 저장
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemoRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MemoSuccess' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Diaries]
+      operationId: deleteDiaryMemo
+      summary: 부모 메모 삭제
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /webhooks/livekit:
+    post:
+      tags: [Internal]
+      operationId: receiveLiveKitWebhook
+      summary: LiveKit Webhook 수신
+      description: |
+        LiveKit 서버가 서명한 이벤트를 검증하고 call-room-{callRoomId}의 참가자·통화 상태를 동기화합니다.
+        지원 이벤트는 participant_joined, participant_left, room_finished입니다.
+        participant_left 또는 room_finished 뒤에는 재접속 유예가 시작되며,
+        유예 안에 participant_joined가 오면 종료를 취소합니다. 유예가 만료된 경우에만
+        WAITING/ACTIVE 방을 ENDED로 확정합니다. Webhook은 일반 Bearer/CSRF 인증을 사용하지 않고
+        LiveKit Authorization 서명을 검증합니다.
+      security: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema: { type: string }
+          description: LiveKit Webhook JWT signature header
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+              properties:
+                event: { type: string, enum: [participant_joined, participant_left, room_finished] }
+                room: { type: object, additionalProperties: true }
+                participant: { type: object, additionalProperties: true }
+      responses:
+        '204': { $ref: '#/components/responses/NoContent' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+  /actuator/health:
+    get:
+      tags: [Internal]
+      operationId: getHealth
+      summary: 서버 상태 확인
+      security: []
+      servers:
+        - url: http://localhost:8080/
+          description: Spring Boot Actuator base path
+      responses:
+        '200':
+          description: Actuator health response
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 부모 Access Token 또는 아이 guestSessionToken
+    refreshTokenCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: HttpOnly·Secure·SameSite Cookie로 전달되는 Refresh Token입니다. API request body나 JSON response에 원문을 포함하지 않습니다.
+  parameters:
+    OAuthProvider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [KAKAO, NAVER, GOOGLE] }
+    ChildId:
+      name: childId
+      in: path
+      required: true
+      schema: { type: integer, format: int32, minimum: 1 }
+    InterestId:
+      name: interestId
+      in: path
+      required: true
+      schema: { type: integer, format: int32, minimum: 1 }
+    CallRoomId:
+      name: callRoomId
+      in: path
+      required: true
+      schema: { type: integer, format: int32, minimum: 1 }
+    DiaryId:
+      name: diaryId
+      in: path
+      required: true
+      schema: { type: integer, format: int32, minimum: 1 }
+    InviteToken:
+      name: inviteToken
+      in: path
+      required: true
+      schema: { type: string, minLength: 32 }
+    SuggestionId:
+      name: suggestionId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    OAuthRedirect:
+      description: OAuth provider 또는 프론트 callback으로 redirect합니다.
+      headers:
+        Location:
+          description: Redirect target
+          schema: { type: string, format: uri }
+    NoContent:
+      description: No response body
+    AuthSuccess:
+      description: 회원 정보와 Access Token. Refresh Token은 Set-Cookie response header로 전달됩니다.
+      headers:
+        Set-Cookie:
+          description: HttpOnly refresh_token cookie
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AuthResponse' }
+    CsrfTokenSuccess:
+      description: CSRF 토큰과 요청 헤더 이름. 응답과 함께 XSRF-TOKEN Cookie가 발급됩니다.
+      headers:
+        Set-Cookie:
+          description: JavaScript 또는 Postman이 읽을 수 있는 XSRF-TOKEN cookie
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CsrfTokenResponse' }
+    TokenSuccess:
+      description: 새 Access Token. Refresh Token rotation 결과는 Set-Cookie response header로 전달됩니다.
+      headers:
+        Set-Cookie:
+          description: HttpOnly refresh_token cookie
+          schema: { type: string }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/TokenResponse' }
+    LogoutSuccess:
+      description: Refresh Token 폐기 및 Cookie 삭제 완료
+      headers:
+        Set-Cookie:
+          description: 만료된 refresh_token cookie
+          schema: { type: string }
+    ParentSuccess:
+      description: 부모 정보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ParentResponse' }
+    ChildSuccess:
+      description: 아이 정보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ChildResponse' }
+    ChildListSuccess:
+      description: 아이 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ChildListResponse' }
+    DefaultProfileImageListSuccess:
+      description: Default profile image list
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DefaultProfileImageListResponse' }
+    InterestListSuccess:
+      description: 관심사 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/InterestListResponse' }
+    ChildInterestsSuccess:
+      description: 아이 관심사 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ChildInterestsResponse' }
+    InterestSuggestionListSuccess:
+      description: AI 발견 관심사 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/InterestSuggestionListResponse' }
+    InterestSuggestionSuccess:
+      description: AI 발견 관심사 처리 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/InterestSuggestionResponse' }
+    PostCallInterestAnalysisSuccess:
+      description: 통화 후 관심사 분석 상태와 후보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PostCallInterestAnalysisResponse' }
+    DrawingTopicsSuccess:
+      description: 그림 주제 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DrawingTopicsResponse' }
+    CallRoomCreateSuccess:
+      description: 생성된 통화방과 부모 참여 정보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CallRoomCreateResponse' }
+    CallRoomSuccess:
+      description: 통화방 정보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CallRoomResponse' }
+    CallInviteSuccess:
+      description: 초대 링크 검증 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CallInviteResponse' }
+    ChildJoinSuccess:
+      description: 아이 통화방 참여 정보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ChildJoinResponse' }
+    LiveKitTokenSuccess:
+      description: LiveKit 참여 토큰
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/LiveKitTokenResponse' }
+    CallRoomStatusSuccess:
+      description: 통화방 상태 변경 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CallRoomStatusResponse' }
+    DrawingTopicSuccess:
+      description: 선택된 그림 주제
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DrawingTopicResponse' }
+    CanvasSavedSuccess:
+      description: 캔버스 스냅샷 저장 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CanvasSavedResponse' }
+    CanvasSnapshotSuccess:
+      description: 캔버스 스냅샷
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CanvasSnapshotResponse' }
+    DrawingUploadUrlSuccess:
+      description: 그림 업로드 URL
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DrawingUploadUrlResponse' }
+    DrawingSuccess:
+      description: 최종 그림 확정 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DrawingResponse' }
+    SuggestionListSuccess:
+      description: 대화 제안 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SuggestionListResponse' }
+    SuggestionSuccess:
+      description: 대화 제안 상태 변경 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SuggestionResponse' }
+    DiaryListSuccess:
+      description: 그림일기 목록
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DiaryListResponse' }
+    DiarySuccess:
+      description: 그림일기 상세 정보
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DiaryResponse' }
+    DiaryGenerationAccepted:
+      description: 그림일기 생성 요청 접수 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DiaryGenerationResponse' }
+    DiaryStatusAccepted:
+      description: 그림일기 생성 재시도 접수 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DiaryStatusResponse' }
+    DiaryStatusSuccess:
+      description: 그림일기 상태 변경 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DiaryStatusResponse' }
+    MemoSuccess:
+      description: 부모 메모
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/MemoResponse' }
+  schemas:
+    ApiSuccessBase:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        error: { type: 'null' }
+    AuthResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/AuthData' }
+    CsrfTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              type: object
+              required: [token, headerName]
+              properties:
+                token: { type: string }
+                headerName: { type: string, example: X-XSRF-TOKEN }
+    TokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/TokenData' }
+    ParentResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Parent' }
+    ChildResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Child' }
+    ChildListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/ChildListData' }
+    DefaultProfileImageListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DefaultProfileImageListData' }
+    InterestListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/InterestListData' }
+    ChildInterestsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/ChildInterestsData' }
+    InterestSuggestionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/InterestSuggestionListData' }
+    InterestSuggestionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/InterestSuggestion' }
+    PostCallInterestAnalysisResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/PostCallInterestAnalysis' }
+    DrawingTopicsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DrawingTopicsData' }
+    CallRoomCreateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/CallRoomCreateData' }
+    CallRoomResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/CallRoomData' }
+    CallInviteResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/CallInviteData' }
+    ChildJoinResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/ChildJoinData' }
+    LiveKitTokenResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/LiveKitTokenData' }
+    CallRoomStatusResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/CallRoomStatusData' }
+    DrawingTopicResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DrawingTopicData' }
+    CanvasSavedResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/CanvasSavedData' }
+    CanvasSnapshotResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              anyOf:
+                - $ref: '#/components/schemas/CanvasSnapshotData'
+                - type: 'null'
+    DrawingUploadUrlResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DrawingUploadUrlData' }
+    DrawingResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DrawingData' }
+    SuggestionListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/SuggestionListData' }
+    SuggestionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Suggestion' }
+    DiaryListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DiaryListData' }
+    DiaryResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/Diary' }
+    DiaryGenerationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DiaryGenerationData' }
+    DiaryStatusResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DiaryStatusData' }
+    MemoResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/MemoData' }
+    ErrorResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: false }
+        data: { type: 'null' }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: RESOURCE_NOT_FOUND }
+            message: { type: string, example: 요청한 리소스를 찾을 수 없습니다. }
+            details: { type: [object, array, string, 'null'] }
+    AuthData:
+      type: object
+      required: [parent, accessToken, accessTokenExpiresIn, refreshTokenExpiresIn]
+      properties:
+        parent: { $ref: '#/components/schemas/Parent' }
+        accessToken: { type: string }
+        accessTokenExpiresIn: { type: integer, minimum: 1 }
+        refreshTokenExpiresIn: { type: integer, minimum: 1 }
+    TokenData:
+      type: object
+      required: [accessToken, accessTokenExpiresIn, refreshTokenExpiresIn]
+      properties:
+        accessToken: { type: string }
+        accessTokenExpiresIn: { type: integer, minimum: 1 }
+        refreshTokenExpiresIn: { type: integer, minimum: 1 }
+    Parent:
+      type: object
+      required: [id, name, accountStatus, provider]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        accountStatus: { type: boolean }
+        provider:
+          type: [string, 'null']
+          enum: [kakao, naver, google, null]
+          description: 부모 계정을 생성하거나 로그인한 OAuth provider
+    InterestSummary:
+      type: object
+      required: [id, name, source]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        category: { type: [string, 'null'] }
+        source: { type: string, enum: [DEFAULT, USER, AI] }
+    Child:
+      type: object
+      description: 아이 CRUD API가 현재 반환하는 아이 프로필입니다. 관심사는 별도 관심사 API로 조회합니다.
+      required: [id, name, birthDate]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        birthDate: { type: string, format: date }
+        gender: { type: [string, 'null'], enum: [MALE, FEMALE, null] }
+        profileImageKey: { type: [string, 'null'], maxLength: 500 }
+    ChildListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Child' }
+    DefaultProfileImage:
+      type: object
+      required: [profileImageKey, profileImageUrl, expiresAt]
+      properties:
+        profileImageKey:
+          type: string
+          maxLength: 500
+          example: profiles/default/profile-image-01.png
+        profileImageUrl:
+          type: string
+          format: uri
+          description: Short-lived S3 presigned GET URL
+        expiresAt:
+          type: string
+          format: date-time
+    DefaultProfileImageListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DefaultProfileImage' }
+    Interest:
+      type: object
+      required: [id, name, isDefault, isActive]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        category: { type: [string, 'null'] }
+        isDefault: { type: boolean }
+        isActive: { type: boolean }
+    InterestListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Interest' }
+    ChildInterest:
+      type: object
+      required: [id, name, source, status]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        category: { type: [string, 'null'] }
+        source: { type: string, enum: [DEFAULT, USER, AI] }
+        status: { type: string, enum: [PENDING, ACTIVE, REJECTED] }
+    ChildInterestsData:
+      type: object
+      required: [childId, items]
+      properties:
+        childId: { type: integer, format: int32, minimum: 1 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ChildInterest' }
+    InterestSuggestion:
+      type: object
+      required: [interestId, name, confidence, status, source]
+      properties:
+        childId: { type: integer, format: int32, minimum: 1 }
+        interestId: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        category: { type: [string, 'null'] }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        status: { type: string, enum: [PENDING, ACTIVE, REJECTED] }
+        source: { type: string, const: AI }
+    InterestSuggestionListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/InterestSuggestion' }
+    PostCallInterestAnalysisCandidate:
+      type: object
+      required: [interestId, name, category, confidence, decision]
+      properties:
+        interestId: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        category: { type: [string, 'null'] }
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        decision: { type: [string, 'null'], enum: [APPROVED, REJECTED, null] }
+    PostCallInterestAnalysis:
+      type: object
+      required: [callRoomId, childId, status, dismissed, reviewed, requestedAt, candidates]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        childId: { type: integer, format: int32, minimum: 1 }
+        status: { type: string, enum: [PENDING, RUNNING, SUCCEEDED, FAILED] }
+        errorCode: { type: [string, 'null'] }
+        dismissed: { type: boolean }
+        reviewed: { type: boolean }
+        requestedAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/PostCallInterestAnalysisCandidate' }
+    DrawingTopic:
+      type: object
+      required: [topicId, title, prompt]
+      properties:
+        topicId: { type: string }
+        title: { type: string }
+        prompt: { type: string }
+    DrawingTopicsData:
+      type: object
+      required: [date, items]
+      properties:
+        date: { type: string, format: date }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DrawingTopic' }
+    CallRoomCreateData:
+      type: object
+      required: [callRoomId, childId, roomStatus, inviteToken, inviteUrl, livekitUrl, livekitToken, participantRole, expiresAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        childId: { type: integer, format: int32, minimum: 1 }
+        roomStatus: { type: string, enum: [WAITING, ACTIVE, ENDED, CANCELLED, FAILED] }
+        inviteToken: { type: string }
+        inviteUrl: { type: string, format: uri }
+        livekitUrl: { type: string, format: uri }
+        livekitToken: { type: string }
+        participantRole: { type: string, const: PARENT }
+        expiresAt: { type: string, format: date-time }
+    CallRoomData:
+      type: object
+      required: [callRoomId, child, roomStatus, participants]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        child:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: integer, format: int32, minimum: 1 }
+            name: { type: string }
+            profileImageUrl: { type: [string, 'null'], format: uri }
+        roomStatus: { type: string, enum: [WAITING, ACTIVE, ENDED, CANCELLED, FAILED] }
+        startedAt: { type: [string, 'null'], format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
+        participants:
+          type: object
+          required: [parentConnected, childConnected]
+          properties:
+            parentConnected: { type: boolean }
+            childConnected: { type: boolean }
+    CallInviteData:
+      type: object
+      required: [valid, callRoomId, child, roomStatus, expiresAt]
+      properties:
+        valid: { type: boolean }
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        child:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: integer, format: int32, minimum: 1 }
+            name: { type: string }
+            profileImageUrl: { type: [string, 'null'], format: uri }
+        roomStatus: { type: string, enum: [WAITING, ACTIVE, ENDED, CANCELLED, FAILED] }
+        expiresAt: { type: string, format: date-time }
+    ChildJoinData:
+      type: object
+      required: [callRoomId, guestSessionToken, livekitToken, livekitUrl, participantRole, expiresAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        guestSessionToken: { type: string }
+        livekitToken: { type: string }
+        livekitUrl: { type: string, format: uri }
+        participantRole: { type: string, const: CHILD }
+        expiresAt: { type: string, format: date-time }
+    LiveKitTokenData:
+      type: object
+      required: [callRoomId, livekitToken, livekitUrl, participantRole, expiresAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        livekitToken: { type: string }
+        livekitUrl: { type: string, format: uri }
+        participantRole: { type: string, enum: [PARENT, CHILD, AI_AGENT] }
+        expiresAt: { type: string, format: date-time }
+    CallRoomStatusData:
+      type: object
+      required: [callRoomId, roomStatus, endedAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        roomStatus: { type: string, enum: [WAITING, ACTIVE, ENDED, CANCELLED, FAILED] }
+        endedAt: { type: [string, 'null'], format: date-time }
+    DrawingTopicData:
+      type: object
+      required: [callRoomId, topicId, title, prompt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        topicId: { type: string }
+        title: { type: string }
+        prompt: { type: string }
+    CanvasSavedData:
+      type: object
+      required: [callRoomId, version, savedAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        version: { type: integer, minimum: 1 }
+        savedAt: { type: string, format: date-time }
+    CanvasSnapshotData:
+      type: object
+      required: [callRoomId, version, width, height, objects, savedAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        version: { type: integer, minimum: 1 }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+        objects: { type: array, items: { type: object, additionalProperties: true } }
+        savedAt: { type: string, format: date-time }
+    DrawingUploadUrlData:
+      type: object
+      required: [uploadUrl, objectKey, method, headers, expiresIn]
+      properties:
+        uploadUrl: { type: string, format: uri }
+        objectKey: { type: string }
+        method: { type: string, const: PUT }
+        headers: { type: object, additionalProperties: { type: string } }
+        expiresIn: { type: integer, minimum: 1 }
+    DrawingData:
+      type: object
+      required: [callRoomId, drawingObjectKey, drawingUrl, confirmedAt]
+      properties:
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        drawingObjectKey: { type: string }
+        drawingUrl: { type: string, format: uri }
+        confirmedAt: { type: string, format: date-time }
+    Suggestion:
+      type: object
+      required:
+        - suggestionId
+        - suggestionType
+        - question
+        - topicKey
+        - topicName
+        - priority
+        - evidenceText
+        - questionSetId
+        - parentTopicSuggestionId
+        - questions
+        - status
+      properties:
+        suggestionId: { type: string }
+        suggestionType: { type: string, enum: [TOPIC_CONFIRMATION, QUESTION] }
+        question: { type: string }
+        topicKey: { type: string }
+        topicName: { type: string }
+        matchType: { type: [string, 'null'], enum: [DIRECT, CONTEXT_REQUIRED, SEMANTIC, null] }
+        semanticSimilarity: { type: [number, 'null'], format: double, minimum: 0, maximum: 1 }
+        priority: { type: integer }
+        evidenceText: { type: [string, 'null'] }
+        questionSetId: { type: [string, 'null'] }
+        parentTopicSuggestionId: { type: [string, 'null'] }
+        questions:
+          type: array
+          description: QUESTION이면 정확히 3개이며 TOPIC_CONFIRMATION이면 빈 배열
+          items: { $ref: '#/components/schemas/ConversationQuestion' }
+        status: { type: string, enum: [AVAILABLE, SELECTED, HIDDEN] }
+        createdAt: { type: [string, 'null'], format: date-time }
+        exposedAt: { type: [string, 'null'], format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        selectedAt: { type: [string, 'null'], format: date-time }
+    ConversationQuestion:
+      type: object
+      required: [questionId, text]
+      properties:
+        questionId: { type: string }
+        text: { type: string }
+        templateId: { type: [string, 'null'] }
+        purpose: { type: [string, 'null'] }
+    SuggestionListData:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Suggestion' }
+    DiarySummary:
+      type: object
+      required: [id, callRoomId, childId, childName, childProfileImageKey, diaryDate, body, diaryStatus, drawingUrl, hasMemo, callStartedAt, callEndedAt, callDurationSeconds]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        childId: { type: integer, format: int32, minimum: 1 }
+        childName: { type: string, maxLength: 100 }
+        childProfileImageKey: { type: [string, 'null'], maxLength: 500 }
+        diaryDate: { type: string, format: date }
+        body: { type: [string, 'null'], maxLength: 378 }
+        diaryStatus: { type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED, CONFIRMED] }
+        drawingUrl: { type: [string, 'null'], format: uri }
+        hasMemo: { type: boolean }
+        callStartedAt: { type: [string, 'null'], format: date-time }
+        callEndedAt: { type: [string, 'null'], format: date-time }
+        callDurationSeconds: { type: [integer, 'null'], minimum: 0 }
+    DiaryListData:
+      type: object
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DiarySummary' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        totalElements: { type: integer, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+    Diary:
+      type: object
+      required: [id, callRoomId, childId, childName, childProfileImageKey, diaryDate, body, diaryStatus, drawingUrl, hasMemo, callStartedAt, callEndedAt, callDurationSeconds, memoContent, remainingRegenerationAttempts]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        childId: { type: integer, format: int32, minimum: 1 }
+        childName: { type: string, maxLength: 100 }
+        childProfileImageKey: { type: [string, 'null'], maxLength: 500 }
+        diaryDate: { type: string, format: date }
+        body: { type: [string, 'null'], maxLength: 378 }
+        diaryStatus: { type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED, CONFIRMED] }
+        drawingUrl: { type: [string, 'null'], format: uri }
+        hasMemo: { type: boolean }
+        callStartedAt: { type: [string, 'null'], format: date-time }
+        callEndedAt: { type: [string, 'null'], format: date-time }
+        callDurationSeconds: { type: [integer, 'null'], minimum: 0 }
+        memoContent: { type: [string, 'null'], maxLength: 5000 }
+        remainingRegenerationAttempts: { type: integer, minimum: 0, description: Redis counter 기준 남은 이야기 재생성 가능 횟수 }
+    DiaryGenerationData:
+      type: object
+      required: [diaryId, callRoomId, diaryStatus, requestedAt]
+      properties:
+        diaryId: { type: integer, format: int32, minimum: 1 }
+        callRoomId: { type: integer, format: int32, minimum: 1 }
+        diaryStatus: { type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED, CONFIRMED] }
+        requestedAt: { type: string, format: date-time }
+    DiaryStatusData:
+      type: object
+      required: [diaryId, diaryStatus]
+      properties:
+        diaryId: { type: integer, format: int32, minimum: 1 }
+        diaryStatus: { type: string, enum: [PENDING, PROCESSING, COMPLETED, FAILED, CONFIRMED] }
+        requestedAt: { type: [string, 'null'], format: date-time }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+    MemoData:
+      type: object
+      required: [diaryId, memoContent]
+      properties:
+        diaryId: { type: integer, format: int32, minimum: 1 }
+        memoContent: { type: [string, 'null'] }
+    OAuthExchangeRequest:
+      type: object
+      required: [loginCode]
+      properties:
+        loginCode: { type: string, minLength: 32 }
+        termsAgreed:
+          type: boolean
+          description: 신규 OAuth 가입인 경우 true가 필요하며 기존 회원 로그인에서는 생략할 수 있습니다.
+    ParentPatchRequest:
+      type: object
+      minProperties: 1
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+    ChildCreateRequest:
+      type: object
+      required: [name, birthDate]
+      description: 부모 계정 하나당 아이는 최대 4명까지 등록할 수 있습니다.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        birthDate: { type: string, format: date }
+        gender: { type: [string, 'null'], enum: [MALE, FEMALE, null] }
+        profileImageKey: { type: [string, 'null'], maxLength: 500, description: MVP에서는 서버 허용 목록에 있는 고정 프로필 이미지 식별자만 허용 }
+    ChildPatchRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        birthDate: { type: string, format: date }
+        gender: { type: [string, 'null'], enum: [MALE, FEMALE, null] }
+        profileImageKey: { type: [string, 'null'], maxLength: 500, description: MVP에서는 서버 허용 목록에 있는 고정 프로필 이미지 식별자만 허용 }
+    ReplaceInterestsRequest:
+      type: object
+      required: [interestIds]
+      properties:
+        interestIds:
+          type: array
+          uniqueItems: true
+          items: { type: integer, format: int32, minimum: 1 }
+    InterestSuggestionDecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [APPROVE, REJECT] }
+    PostCallInterestDecisionRequest:
+      type: object
+      required: [selectedInterestIds]
+      properties:
+        selectedInterestIds:
+          type: array
+          maxItems: 5
+          uniqueItems: true
+          items: { type: integer, format: int32, minimum: 1 }
+    CallRoomCreateRequest:
+      type: object
+      required: [childId]
+      properties:
+        childId: { type: integer, format: int32, minimum: 1 }
+    CallRoomReasonRequest:
+      type: object
+      properties:
+        reason: { type: [string, 'null'], maxLength: 500 }
+    DrawingTopicRequest:
+      type: object
+      required: [topicId]
+      properties:
+        topicId: { type: string, minLength: 1, maxLength: 100 }
+    CanvasSnapshotRequest:
+      type: object
+      required: [version, width, height, objects]
+      properties:
+        version: { type: integer, minimum: 1 }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+        objects: { type: array, items: { type: object, additionalProperties: true } }
+    DrawingUploadUrlRequest:
+      type: object
+      required: [fileName, contentType, contentLength]
+      properties:
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        contentType: { type: string, enum: [image/png, image/jpeg] }
+        contentLength: { type: integer, minimum: 1, maximum: 10485760 }
+    ConfirmDrawingRequest:
+      type: object
+      required: [objectKey, contentType]
+      properties:
+        objectKey: { type: string, minLength: 1, maxLength: 500 }
+        contentType: { type: string, enum: [image/png, image/jpeg] }
+    SuggestionStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [SELECTED, HIDDEN] }
+    DiaryGenerationRequest:
+      type: object
+      properties:
+        memoContent: { type: [string, 'null'], maxLength: 5000 }
+    DiaryUpdateRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 378 }
+    MemoRequest:
+      type: object
+      required: [memoContent]
+      properties:
+        memoContent: { type: string, maxLength: 5000 }
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, example: UP }
+        components:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status: { type: string }

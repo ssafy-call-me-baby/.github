@@ -1,0 +1,1256 @@
+openapi: 3.1.0
+info:
+  title: CallMeBaby AI Internal API
+  version: 1.0.0
+  license:
+    name: Private MVP Project
+    identifier: Proprietary
+  description: |
+    Spring Boot와 LiveKit AI Agent가 실시간 토픽 AI 서버를 호출할 때 사용하는 내부 계약입니다.
+    브라우저에 공개하지 않으며, 사용자 인증과 아이·통화방 소유권 검증은 Spring에서 먼저 수행합니다.
+
+    확정된 아이 STT만 분석하고 AI 결과로 지속 관심사를 자동 등록하지 않습니다.
+    `CONTINUE`와 `SKIP`은 현재 통화의 대화 선호 신호이며 최종 관심사 판단은 부모 확인을 거칩니다.
+
+    모든 세션 변경 요청은 멱등 식별자를 사용합니다.
+    같은 식별자와 같은 payload의 재전송은 기존 결과를 반환하고, 같은 식별자의 다른 payload는 `400`으로 거절합니다.
+servers:
+  - url: http://localhost:8001
+    description: 로컬 AI API
+  - url: http://ai-api:8001
+    description: 내부 컨테이너 네트워크
+tags:
+  - name: Topic Sessions
+    description: 통화 중 토픽 후보·질문 노출·부모 응답 세션 관리
+  - name: Diaries
+    description: 통화 종료 후 근거 기반 그림일기 생성
+  - name: Health
+    description: AI 프로세스와 Redis 준비 상태 확인
+security:
+  - internalApiKey: []
+x-public-api-mapping:
+  spec: ./openapi.yaml
+  description: 공개 Conversation Suggestions API와 AI 내부 상태의 변환은 Spring이 담당합니다.
+  decisions:
+    SELECTED: CONTINUE
+    HIDDEN: SKIP
+paths:
+  /internal/ai/topic-sessions/events:
+    post:
+      tags: [Topic Sessions]
+      operationId: analyzeTopicSessionEvent
+      summary: 확정 아이 STT 분석·누적
+      description: |
+        확정된 아이 STT 한 건에서 토픽 후보를 추출하고 Redis 통화 세션에 누적합니다.
+        `event.eventId`가 멱등 키이며 같은 이벤트 재전송 시 `duplicateEvent=true`를 반환합니다.
+        응답의 `realtimePromptEligible=true`는 부모에게 토픽 확인 문구를 노출할 수 있다는 의미이며
+        아이의 지속 관심사로 확정됐다는 의미가 아닙니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnalyzeEventRequest' }
+            examples:
+              dinosaurTopic:
+                value:
+                  event:
+                    schemaVersion: '1.0'
+                    eventId: evt-001
+                    callRoomId: 101
+                    childId: 7
+                    utteranceIndex: 3
+                    speaker: CHILD
+                    isFinal: true
+                    text: 공룡이 제일 좋아
+                  activeInterests:
+                    - interestId: 11
+                      interestKey: WILD_ANIMALS
+                      name: 야생동물
+                      category: 생명·자연·과학
+      responses:
+        '200': { $ref: '#/components/responses/ProcessEventSuccess' }
+        '400': { $ref: '#/components/responses/DomainError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/ai/topic-sessions/{callRoomId}/prompts:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Topic Sessions]
+      operationId: markTopicPromptExposed
+      summary: 부모 토픽 확인 문구 노출 기록
+      description: |
+        부모 화면에 토픽 확인 문구가 실제로 노출된 시점을 기록하고 해당 토픽의 쿨다운을 시작합니다.
+        `promptId`가 멱등 키입니다. 토픽 탐지만으로는 이 API를 호출하지 않습니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PromptExposedRequest' }
+            example:
+              childId: 7
+              promptId: prompt-001
+              topicKey: DINOSAURS
+              sourceEventId: evt-001
+      responses:
+        '200': { $ref: '#/components/responses/PromptActionSuccess' }
+        '400': { $ref: '#/components/responses/DomainError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/ai/topic-sessions/{callRoomId}/decisions:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Topic Sessions]
+      operationId: recordTopicPromptDecision
+      summary: 부모의 현재 대화 선호 기록
+      description: |
+        부모의 `CONTINUE` 또는 `SKIP` 응답을 노출된 prompt에 연결합니다.
+        공개 API의 `SELECTED`는 `CONTINUE`, `HIDDEN`은 `SKIP`으로 변환합니다.
+        `decisionId`가 멱등 키이며 한 prompt의 결정을 다른 값으로 덮어쓸 수 없습니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ParentDecisionRequest' }
+            example:
+              childId: 7
+              promptId: prompt-001
+              decisionId: decision-001
+              decision: CONTINUE
+      responses:
+        '200': { $ref: '#/components/responses/DecisionActionSuccess' }
+        '400': { $ref: '#/components/responses/DomainError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/ai/topic-sessions/{callRoomId}/questions:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Topic Sessions]
+      operationId: generateTopicQuestions
+      summary: 선택한 토픽의 후속 질문 생성
+      description: |
+        부모가 `CONTINUE`로 선택한 토픽에 대해 2~3개의 후속 질문을 생성합니다.
+        Spring은 `childId`, 노출된 토픽 확인 문구의 `promptId`, `questionSetId`, 질문 개수만 전달합니다.
+        AI는 Redis 세션에서 토픽, 근거 발화, 기존 관심사 관계를 직접 복원합니다.
+
+        `questionSetId`는 생성 요청 멱등 키입니다. 같은 ID와 같은 요청의 재전송은 저장된
+        결과를 반환하며, 다른 payload에 같은 ID를 사용하면 `400`으로 거절합니다.
+        생성된 질문은 Redis 세션에 저장하고 같은 토픽의 다음 생성에서 제외합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionGenerationRequest' }
+            example:
+              childId: 7
+              promptId: prompt-001
+              questionSetId: questions-001
+              count: 3
+      responses:
+        '200': { $ref: '#/components/responses/QuestionGenerationSuccess' }
+        '400': { $ref: '#/components/responses/DomainError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '409': { $ref: '#/components/responses/QuestionPoolExhaustedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/ai/topic-sessions/{callRoomId}/interest-candidates:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+    post:
+      tags: [Topic Sessions]
+      operationId: summarizePostCallInterestCandidates
+      summary: 통화 후 부모 확인용 관심사 후보 종합
+      description: |
+        Redis 토픽 세션에 누적된 반복 발화, 명시적 선호, `CONTINUE/SKIP`, 기존 ACTIVE
+        관심사 관계를 종합합니다. 결과는 관심사를 자동 등록하지 않으며 Spring이 `PENDING`
+        후보로 저장한 뒤 부모가 최종 승인하거나 거절합니다.
+
+        같은 세션 상태에는 같은 후보와 점수를 반환하는 읽기 전용 연산입니다. 원문 발화는
+        부모에게 근거를 제시하기 위한 내부 응답에만 포함하며 운영 로그에는 남기지 않습니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostCallInterestCandidatesRequest' }
+            example:
+              childId: 7
+      responses:
+        '200': { $ref: '#/components/responses/PostCallInterestCandidatesSuccess' }
+        '400': { $ref: '#/components/responses/DomainError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/ai/topic-sessions/{callRoomId}:
+    parameters:
+      - { $ref: '#/components/parameters/CallRoomId' }
+      - { $ref: '#/components/parameters/ChildIdQuery' }
+    get:
+      tags: [Topic Sessions]
+      operationId: getTopicSession
+      summary: 현재 토픽 세션 조회
+      description: 통화 중 누적된 토픽·발화·부모 응답 요약을 조회합니다. 조회는 Redis TTL을 갱신하지 않습니다.
+      responses:
+        '200': { $ref: '#/components/responses/SessionSuccess' }
+        '400': { $ref: '#/components/responses/DomainError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/ai/diaries/generate:
+    post:
+      tags: [Diaries]
+      operationId: generatePictureDiary
+      summary: 확정 STT·채택 토픽·부모 메모 기반 그림일기 생성
+      description: |
+        Spring이 소유권과 종료 상태를 확인한 뒤 호출합니다. `selectedTopics`에는 통화 중
+        부모가 `CONTINUE`로 채택한 토픽만 전달합니다. STT·토픽·메모는 비신뢰 인용
+        자료로 처리하며 출력 본문은 공백과 문장부호를 포함해 378자 이하입니다.
+        모델 호출이나 생성·보정 검증이 실패하면 성공 본문을 반환하지 않습니다. 호환성을 위해
+        유지하는 `fallbackUsed`는 성공 응답에서 항상 `false`입니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DiaryGenerationRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/DiaryGenerationSuccess' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /internal/ai/stt/transcriptions:
+    post:
+      tags: [STT]
+      operationId: transcribeAudio
+      summary: 음성 파일을 텍스트로 변환
+      security:
+        - internalApiKey: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: WAV, FLAC 또는 OGG 음성 파일
+      responses:
+        '200':
+          description: 변환 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                description: success/data/error 공통 응답. data에는 transcription과 처리 시간이 포함됩니다.
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '413': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/StoreUnavailableError' }
+  /internal/stt-agents:
+    get:
+      tags: [STT Agent Manager]
+      operationId: listSttAgents
+      summary: 실행 중인 STT Agent 목록 조회
+      security:
+        - internalApiKey: []
+      responses:
+        '200':
+          description: 실행 중인 Agent 목록
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+    post:
+      tags: [STT Agent Manager]
+      operationId: startSttAgent
+      summary: 통화방 STT Agent 시작
+      security:
+        - internalApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [callRoomId, childId]
+              properties:
+                callRoomId: { type: integer, minimum: 1 }
+                childId: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Agent 시작 결과 }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '409': { $ref: '#/components/responses/DomainError' }
+  /internal/stt-agents/{callRoomId}/stop:
+    post:
+      tags: [STT Agent Manager]
+      operationId: stopSttAgent
+      summary: 통화방 STT Agent 중지
+      security:
+        - internalApiKey: []
+      parameters:
+        - name: callRoomId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Agent 중지 결과 }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+        '400': { $ref: '#/components/responses/DomainError' }
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getAiLiveness
+      summary: AI 프로세스 생존 확인
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/HealthSuccess' }
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getAiReadiness
+      summary: Redis 요청 처리 준비 상태 확인
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/HealthSuccess' }
+        '503': { $ref: '#/components/responses/NotReadyError' }
+components:
+  securitySchemes:
+    internalApiKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Api-Key
+      description: 32자 이상의 Spring·AI 서비스 전용 키. 브라우저·로그·저장소에 노출하지 않습니다.
+  parameters:
+    CallRoomId:
+      name: callRoomId
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    ChildIdQuery:
+      name: childId
+      in: query
+      required: true
+      schema: { type: integer, minimum: 1 }
+  responses:
+    DiaryGenerationSuccess:
+      description: 378자 본문 제약을 통과한 그림일기
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DiaryGenerationResponse' }
+    ProcessEventSuccess:
+      description: STT 분석 및 세션 누적 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ProcessEventResponse' }
+    PromptActionSuccess:
+      description: 질문 노출 기록 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PromptActionResponse' }
+    DecisionActionSuccess:
+      description: 부모 응답 기록 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DecisionActionResponse' }
+    QuestionGenerationSuccess:
+      description: 검증을 통과한 토픽 후속 질문
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/QuestionGenerationResponse' }
+    PostCallInterestCandidatesSuccess:
+      description: 부모 확인 대상으로 선정된 통화 후 관심사 후보와 제외 근거
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PostCallInterestCandidatesResponse' }
+    SessionSuccess:
+      description: 현재 토픽 세션
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SessionResponse' }
+    DeleteSessionSuccess:
+      description: 토픽 세션 삭제 결과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/DeleteSessionResponse' }
+    HealthSuccess:
+      description: 서비스 정상
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HealthResponse' }
+    UnauthorizedError:
+      description: 내부 API 키 누락 또는 불일치
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            data: null
+            error:
+              code: UNAUTHORIZED
+              message: internal API key is invalid
+              details: null
+    DomainError:
+      description: 멱등 키 충돌, 세션 없음, 아이·통화방 불일치 등 도메인 요청 오류
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            data: null
+            error:
+              code: INVALID_TOPIC_SESSION_REQUEST
+              message: topic session was not found
+              details: null
+    ValidationError:
+      description: 요청 스키마 검증 실패. 원문 STT 입력값은 오류 응답에서 제외합니다.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            data: null
+            error:
+              code: VALIDATION_ERROR
+              message: request validation failed
+              details:
+                - location: [body, event, speaker]
+                  message: Input should be 'CHILD'
+                  type: literal_error
+    StoreUnavailableError:
+      description: Redis 연결 실패 또는 세션 저장소 충돌
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            data: null
+            error:
+              code: TOPIC_SESSION_STORE_UNAVAILABLE
+              message: topic session store is unavailable
+              details: null
+    QuestionPoolExhaustedError:
+      description: 최근 사용 질문을 제외한 질문 풀이 부족함
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            data: null
+            error:
+              code: QUESTION_POOL_EXHAUSTED
+              message: no unused questions are available
+              details: null
+    NotReadyError:
+      description: Redis 연결 불가
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            data: null
+            error:
+              code: NOT_READY
+              message: Redis is unavailable
+              details: null
+  schemas:
+    AnalyzeEventRequest:
+      type: object
+      additionalProperties: false
+      required: [event]
+      properties:
+        event: { $ref: '#/components/schemas/FinalChildSttEvent' }
+        activeInterests:
+          type: array
+          maxItems: 100
+          default: []
+          items: { $ref: '#/components/schemas/ActiveInterest' }
+    FinalChildSttEvent:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, eventId, callRoomId, childId, utteranceIndex, speaker, isFinal, text]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        eventId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: STT 이벤트 멱등 키
+        callRoomId: { type: integer, minimum: 1 }
+        childId: { type: integer, minimum: 1 }
+        utteranceIndex: { type: integer, minimum: 0 }
+        speaker: { type: string, const: CHILD }
+        isFinal: { type: boolean, const: true }
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: 확정된 아이 STT. 로그와 오류 응답에 원문을 남기지 않습니다.
+    ActiveInterest:
+      type: object
+      additionalProperties: false
+      required: [interestId, name]
+      properties:
+        interestId: { type: integer, minimum: 1 }
+        interestKey: { type: [string, 'null'], minLength: 1, maxLength: 128 }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        category: { type: [string, 'null'], maxLength: 100 }
+    PromptExposedRequest:
+      type: object
+      additionalProperties: false
+      required: [childId, promptId, topicKey, sourceEventId]
+      properties:
+        childId: { type: integer, minimum: 1 }
+        promptId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 질문 노출 멱등 키
+        topicKey: { type: string, minLength: 1, maxLength: 128 }
+        sourceEventId: { type: string, minLength: 1, maxLength: 128 }
+    ParentDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [childId, promptId, decisionId, decision]
+      properties:
+        childId: { type: integer, minimum: 1 }
+        promptId: { type: string, minLength: 1, maxLength: 128 }
+        decisionId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 부모 응답 멱등 키
+        decision: { $ref: '#/components/schemas/RealtimeDecision' }
+    QuestionGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [childId, promptId, questionSetId]
+      properties:
+        childId: { type: integer, minimum: 1 }
+        promptId: { type: string, minLength: 1, maxLength: 128 }
+        questionSetId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: 질문 생성 요청 멱등 키
+        count: { type: integer, minimum: 2, maximum: 3, default: 3 }
+    PostCallInterestCandidatesRequest:
+      type: object
+      additionalProperties: false
+      required: [childId]
+      properties:
+        childId: { type: integer, minimum: 1 }
+    ProcessEventResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/ProcessEventData' }
+        error: { type: 'null' }
+    PromptActionResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/PromptActionData' }
+        error: { type: 'null' }
+    DecisionActionResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/DecisionActionData' }
+        error: { type: 'null' }
+    QuestionGenerationResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/QuestionGenerationData' }
+        error: { type: 'null' }
+    PostCallInterestCandidatesResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/PostCallInterestCandidatesData' }
+        error: { type: 'null' }
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/TopicSession' }
+        error: { type: 'null' }
+    DeleteSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [deleted]
+          properties:
+            deleted: { type: boolean }
+        error: { type: 'null' }
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status: { type: string, const: UP }
+        error: { type: 'null' }
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: false }
+        data: { type: 'null' }
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+    ProcessEventData:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, duplicateEvent, analysis, session]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        duplicateEvent: { type: boolean }
+        analysis: { $ref: '#/components/schemas/TopicAnalysis' }
+        session: { $ref: '#/components/schemas/TopicSession' }
+    PromptActionData:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, duplicatePrompt, prompt, session]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        duplicatePrompt: { type: boolean }
+        prompt: { $ref: '#/components/schemas/PromptRecord' }
+        session: { $ref: '#/components/schemas/TopicSession' }
+    DecisionActionData:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, duplicateDecision, prompt, session]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        duplicateDecision: { type: boolean }
+        prompt: { $ref: '#/components/schemas/PromptRecord' }
+        session: { $ref: '#/components/schemas/TopicSession' }
+    QuestionGenerationData:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - duplicateQuestionSet
+        - callRoomId
+        - childId
+        - questionSetId
+        - promptId
+        - topicKey
+        - requestedCount
+        - generatedAt
+        - mode
+        - generator
+        - version
+        - questions
+        - evidence
+        - safety
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        duplicateQuestionSet: { type: boolean }
+        callRoomId: { type: integer, minimum: 1 }
+        childId: { type: integer, minimum: 1 }
+        questionSetId: { type: string }
+        promptId: { type: string }
+        topicKey: { type: string }
+        requestedCount: { type: integer, minimum: 2, maximum: 3 }
+        generatedAt: { type: string, format: date-time }
+        mode:
+          type: string
+          enum:
+            - TEMPLATE_ONLY
+            - TEMPLATE_PRIMARY_LLM_SHADOW
+            - LLM_PRIMARY_TEMPLATE_FALLBACK
+        generator: { type: string, enum: [TEMPLATE, LLM] }
+        version: { type: string }
+        questions:
+          type: array
+          minItems: 2
+          maxItems: 3
+          items: { $ref: '#/components/schemas/GeneratedQuestion' }
+        evidence: { $ref: '#/components/schemas/QuestionGenerationEvidence' }
+        safety: { $ref: '#/components/schemas/QuestionSafetyResult' }
+    PostCallInterestCandidatesData:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - policyVersion
+        - scoreVersion
+        - callRoomId
+        - childId
+        - evaluatedTopicCount
+        - candidateCount
+        - excludedTopicCount
+        - exclusionReasonCounts
+        - candidates
+        - excludedTopics
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        policyVersion: { type: string, const: post-call-interest-v1 }
+        scoreVersion: { type: string, const: post-call-interest-score-v1 }
+        callRoomId: { type: integer, minimum: 1 }
+        childId: { type: integer, minimum: 1 }
+        evaluatedTopicCount: { type: integer, minimum: 0 }
+        candidateCount: { type: integer, minimum: 0 }
+        excludedTopicCount: { type: integer, minimum: 0 }
+        exclusionReasonCounts:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/PostCallInterestCandidate' }
+        excludedTopics:
+          type: array
+          items: { $ref: '#/components/schemas/PostCallExcludedTopic' }
+    PostCallInterestCandidate:
+      type: object
+      additionalProperties: false
+      required:
+        - topicKey
+        - topicName
+        - catalogInterestName
+        - categoryCode
+        - categoryName
+        - relationToActive
+        - relatedActiveInterest
+        - utteranceCount
+        - preferenceCounts
+        - realtimeDecisionCounts
+        - matchTypes
+        - matchedAliases
+        - maxSemanticSimilarity
+        - evidenceEventIds
+        - evidenceUtteranceIndexes
+        - evidence
+        - eligibleReasons
+        - score
+        - scoreVersion
+        - rank
+      properties:
+        topicKey: { type: string }
+        topicName: { type: string }
+        catalogInterestName: { type: string }
+        categoryCode: { type: [string, 'null'] }
+        categoryName: { type: [string, 'null'] }
+        relationToActive: { $ref: '#/components/schemas/RelationToActive' }
+        relatedActiveInterest:
+          oneOf:
+            - { $ref: '#/components/schemas/RelatedActiveInterest' }
+            - { type: 'null' }
+        utteranceCount: { type: integer, minimum: 1 }
+        preferenceCounts: { $ref: '#/components/schemas/PostCallPreferenceCounts' }
+        realtimeDecisionCounts: { $ref: '#/components/schemas/PostCallDecisionCounts' }
+        matchTypes:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        matchedAliases:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        maxSemanticSimilarity: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        evidenceEventIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        evidenceUtteranceIndexes:
+          type: array
+          uniqueItems: true
+          items: { type: integer, minimum: 0 }
+        evidence:
+          type: array
+          items: { $ref: '#/components/schemas/PostCallInterestEvidence' }
+        eligibleReasons:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - PARENT_CONTINUE
+              - EXPLICIT_POSITIVE
+              - REPEATED_UTTERANCES
+              - RELATED_TO_ACTIVE
+              - PARENT_SKIP_PENALTY
+        score: { type: number, minimum: 0, maximum: 1 }
+        scoreVersion: { type: string, const: post-call-interest-score-v1 }
+        rank: { type: integer, minimum: 1 }
+    PostCallPreferenceCounts:
+      type: object
+      additionalProperties: false
+      required: [POSITIVE, NEGATIVE, UNKNOWN, CONFLICT]
+      properties:
+        POSITIVE: { type: integer, minimum: 0 }
+        NEGATIVE: { type: integer, minimum: 0 }
+        UNKNOWN: { type: integer, minimum: 0 }
+        CONFLICT: { type: integer, minimum: 0 }
+    PostCallDecisionCounts:
+      type: object
+      additionalProperties: false
+      required: [CONTINUE, SKIP, NONE]
+      properties:
+        CONTINUE: { type: integer, minimum: 0 }
+        SKIP: { type: integer, minimum: 0 }
+        NONE: { type: integer, minimum: 0 }
+    PostCallInterestEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - utteranceIndex
+        - text
+        - preference
+        - matchTypes
+        - matchedAliases
+        - semanticSimilarity
+        - categoryCode
+        - categoryName
+      properties:
+        eventId: { type: string }
+        utteranceIndex: { type: integer, minimum: 0 }
+        text: { type: string, maxLength: 2000 }
+        preference: { type: string, enum: [POSITIVE, NEGATIVE, UNKNOWN, CONFLICT] }
+        matchTypes:
+          type: array
+          items: { type: string }
+        matchedAliases:
+          type: array
+          items: { type: string }
+        semanticSimilarity: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        categoryCode: { type: [string, 'null'] }
+        categoryName: { type: [string, 'null'] }
+    PostCallExcludedTopic:
+      type: object
+      additionalProperties: false
+      required: [topicKey, catalogInterestName, reason]
+      properties:
+        topicKey: { type: string }
+        catalogInterestName: { type: string }
+        reason:
+          type: string
+          enum:
+            - SAME_AS_ACTIVE
+            - PREFERENCE_CONFLICT
+            - EXPLICIT_NEGATIVE_ONLY
+            - SKIP_ONLY
+            - INSUFFICIENT_EVIDENCE
+    GeneratedQuestion:
+      type: object
+      additionalProperties: false
+      required: [questionId, templateId, purpose, text]
+      properties:
+        questionId: { type: string, minLength: 1, maxLength: 160 }
+        templateId: { type: string }
+        purpose: { type: string }
+        text: { type: string, minLength: 1, maxLength: 100 }
+    QuestionGenerationEvidence:
+      type: object
+      additionalProperties: false
+      required: [utterance, usedForGeneration, relationToActive, relatedActiveInterest]
+      properties:
+        utterance: { type: string, minLength: 1, maxLength: 2000 }
+        usedForGeneration: { type: boolean }
+        relationToActive: { $ref: '#/components/schemas/RelationToActive' }
+        relatedActiveInterest:
+          oneOf:
+            - { $ref: '#/components/schemas/RelatedActiveInterest' }
+            - { type: 'null' }
+    QuestionSafetyResult:
+      type: object
+      additionalProperties: false
+      required: [passed, checks]
+      properties:
+        passed: { type: boolean }
+        checks:
+          type: array
+          items: { type: string }
+    TopicAnalysis:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, inputPolicy, eventId, callRoomId, childId, utteranceIndex, analysisPolicy, topics]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        inputPolicy: { type: string, const: CHILD_FINAL_STT_ONLY }
+        eventId: { type: string }
+        callRoomId: { type: integer, minimum: 1 }
+        childId: { type: integer, minimum: 1 }
+        utteranceIndex: { type: integer, minimum: 0 }
+        analysisPolicy: { $ref: '#/components/schemas/AnalysisPolicy' }
+        topics:
+          type: array
+          items: { $ref: '#/components/schemas/TopicCandidate' }
+    AnalysisPolicy:
+      type: object
+      additionalProperties: false
+      required:
+        - purpose
+        - semanticCandidatePolicy
+        - semanticMinSimilarity
+        - semanticMinTop1Top2Margin
+        - configVersion
+        - relatedSimilarityThreshold
+        - thresholdStatus
+        - persistentInterestDecision
+      properties:
+        purpose: { type: string, const: REALTIME_TOPIC_CANDIDATE }
+        semanticCandidatePolicy:
+          type: [string, 'null']
+          enum: [TOP1_SCORE_AND_MARGIN, TOP3_THRESHOLD, null]
+        semanticMinSimilarity: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        semanticMinTop1Top2Margin: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        configVersion: { type: [string, 'null'] }
+        relatedSimilarityThreshold: { type: number, minimum: 0, maximum: 1 }
+        thresholdStatus: { type: string }
+        persistentInterestDecision: { type: string, const: PARENT_CONFIRMATION_REQUIRED }
+    TopicCandidate:
+      type: object
+      additionalProperties: false
+      required:
+        - topicKey
+        - topicName
+        - catalogInterestKey
+        - catalogInterestName
+        - categoryCode
+        - categoryName
+        - relationToActive
+        - relatedActiveInterest
+        - personalizationBoost
+        - matchTypes
+        - preference
+        - realtimePromptEligible
+        - realtimeEligibilityReason
+        - promptText
+        - evidence
+        - cooldown
+      properties:
+        topicKey: { type: string }
+        topicName: { type: string }
+        catalogInterestKey: { type: string }
+        catalogInterestName: { type: string }
+        categoryCode: { type: string }
+        categoryName: { type: string }
+        relationToActive: { $ref: '#/components/schemas/RelationToActive' }
+        relatedActiveInterest:
+          oneOf:
+            - { $ref: '#/components/schemas/RelatedActiveInterest' }
+            - { type: 'null' }
+        personalizationBoost: { type: boolean }
+        matchTypes:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [DIRECT, CONTEXT_REQUIRED, SEMANTIC] }
+        preference: { type: string, enum: [POSITIVE, NEGATIVE, UNKNOWN, CONFLICT] }
+        realtimePromptEligible: { type: boolean }
+        realtimeEligibilityReason:
+          type: string
+          enum:
+            - SUPPORTED_TOPIC
+            - SUPPORTED_TOPIC_WITHOUT_PERSONALIZATION
+            - PREFERENCE_CONFLICT
+            - EXPLICIT_NEGATIVE
+            - NO_SUPPORTED_MATCH
+            - TOPIC_COOLDOWN
+            - DUPLICATE_EVENT
+        promptText: { type: [string, 'null'] }
+        evidence: { $ref: '#/components/schemas/TopicEvidence' }
+        cooldown: { $ref: '#/components/schemas/TopicCooldown' }
+    RelatedActiveInterest:
+      type: object
+      additionalProperties: false
+      required: [interestId, interestKey, name, similarity]
+      properties:
+        interestId: { type: integer, minimum: 1 }
+        interestKey: { type: [string, 'null'] }
+        name: { type: string }
+        similarity: { type: number, minimum: -1, maximum: 1 }
+    TopicEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - semanticSimilarity
+        - top1Similarity
+        - top2Similarity
+        - top1Top2Margin
+        - matchedAliases
+        - preferenceEvidence
+      properties:
+        text: { type: string }
+        semanticSimilarity: { type: [number, 'null'], minimum: -1, maximum: 1 }
+        top1Similarity: { type: [number, 'null'], minimum: -1, maximum: 1 }
+        top2Similarity: { type: [number, 'null'], minimum: -1, maximum: 1 }
+        top1Top2Margin: { type: [number, 'null'], minimum: -2, maximum: 2 }
+        matchedAliases:
+          type: array
+          items: { type: string }
+        preferenceEvidence:
+          type: array
+          items: { $ref: '#/components/schemas/PreferenceEvidence' }
+    PreferenceEvidence:
+      type: object
+      additionalProperties: true
+      properties:
+        polarity: { type: string, enum: [POSITIVE, NEGATIVE] }
+        expression: { type: string }
+    TopicCooldown:
+      type: object
+      additionalProperties: false
+      required: [configuredSeconds, remainingSeconds, lastPromptedAt]
+      properties:
+        configuredSeconds: { type: number, minimum: 0 }
+        remainingSeconds: { type: number, minimum: 0 }
+        lastPromptedAt: { type: [string, 'null'], format: date-time }
+    TopicSession:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, storage, callRoomId, childId, processedEventCount, processedEventIds, topics, prompts, questionSets]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        storage: { type: string, const: REDIS }
+        callRoomId: { type: integer, minimum: 1 }
+        childId: { type: integer, minimum: 1 }
+        processedEventCount: { type: integer, minimum: 0 }
+        processedEventIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        topics:
+          type: array
+          items: { $ref: '#/components/schemas/SessionTopic' }
+        prompts:
+          type: array
+          items: { $ref: '#/components/schemas/PromptRecord' }
+        questionSets:
+          type: array
+          items: { $ref: '#/components/schemas/StoredQuestionSet' }
+    StoredQuestionSet:
+      type: object
+      additionalProperties: false
+      required:
+        - questionSetId
+        - promptId
+        - topicKey
+        - requestedCount
+        - generatedAt
+        - mode
+        - generator
+        - version
+        - questions
+        - evidence
+        - safety
+      properties:
+        questionSetId: { type: string }
+        promptId: { type: string }
+        topicKey: { type: string }
+        requestedCount: { type: integer, minimum: 2, maximum: 3 }
+        generatedAt: { type: string, format: date-time }
+        mode:
+          type: string
+          enum:
+            - TEMPLATE_ONLY
+            - TEMPLATE_PRIMARY_LLM_SHADOW
+            - LLM_PRIMARY_TEMPLATE_FALLBACK
+        generator: { type: string, enum: [TEMPLATE, LLM] }
+        version: { type: string }
+        questions:
+          type: array
+          minItems: 2
+          maxItems: 3
+          items: { $ref: '#/components/schemas/GeneratedQuestion' }
+        evidence: { $ref: '#/components/schemas/QuestionGenerationEvidence' }
+        safety: { $ref: '#/components/schemas/QuestionSafetyResult' }
+    SessionTopic:
+      type: object
+      additionalProperties: false
+      required:
+        - topicKey
+        - topicName
+        - catalogInterestName
+        - relationToActive
+        - relatedActiveInterest
+        - utteranceCount
+        - evidenceEventIds
+        - evidenceUtteranceIndexes
+        - childPreferenceCounts
+        - realtimeDecisionCounts
+        - matchTypes
+        - maxSemanticSimilarity
+        - promptCount
+        - lastPromptedAt
+      properties:
+        topicKey: { type: string }
+        topicName: { type: string }
+        catalogInterestName: { type: string }
+        relationToActive: { $ref: '#/components/schemas/RelationToActive' }
+        relatedActiveInterest:
+          oneOf:
+            - { $ref: '#/components/schemas/RelatedActiveInterest' }
+            - { type: 'null' }
+        utteranceCount: { type: integer, minimum: 0 }
+        evidenceEventIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        evidenceUtteranceIndexes:
+          type: array
+          uniqueItems: true
+          items: { type: integer, minimum: 0 }
+        childPreferenceCounts: { $ref: '#/components/schemas/PreferenceCounts' }
+        realtimeDecisionCounts: { $ref: '#/components/schemas/DecisionCounts' }
+        matchTypes:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        maxSemanticSimilarity: { type: [number, 'null'], minimum: -1, maximum: 1 }
+        promptCount: { type: integer, minimum: 0 }
+        lastPromptedAt: { type: [string, 'null'], format: date-time }
+    PromptRecord:
+      type: object
+      additionalProperties: false
+      required: [promptId, topicKey, sourceEventId, promptText, promptedAt, decision, decisionId, decidedAt]
+      properties:
+        promptId: { type: string }
+        topicKey: { type: string }
+        sourceEventId: { type: string }
+        promptText: { type: string }
+        promptedAt: { type: string, format: date-time }
+        decision: { $ref: '#/components/schemas/PromptDecision' }
+        decisionId: { type: [string, 'null'] }
+        decidedAt: { type: [string, 'null'], format: date-time }
+    PreferenceCounts:
+      type: object
+      additionalProperties: false
+      required: [POSITIVE, NEGATIVE, UNKNOWN, CONFLICT]
+      properties:
+        POSITIVE: { type: integer, minimum: 0 }
+        NEGATIVE: { type: integer, minimum: 0 }
+        UNKNOWN: { type: integer, minimum: 0 }
+        CONFLICT: { type: integer, minimum: 0 }
+    DecisionCounts:
+      type: object
+      additionalProperties: false
+      required: [CONTINUE, SKIP, NONE]
+      properties:
+        CONTINUE: { type: integer, minimum: 0 }
+        SKIP: { type: integer, minimum: 0 }
+        NONE: { type: integer, minimum: 0 }
+    RelationToActive:
+      type: string
+      enum: [SAME_AS_ACTIVE, RELATED_TO_ACTIVE, NEW_UNRELATED, UNRESOLVED]
+    RealtimeDecision:
+      type: string
+      enum: [CONTINUE, SKIP]
+    PromptDecision:
+      type: string
+      enum: [CONTINUE, SKIP, NONE]
+    DiaryGenerationRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, requestId, callRoomId, childId, transcript]
+      properties:
+        schemaVersion: { type: string, const: '1.0' }
+        requestId: { type: string, minLength: 1, maxLength: 128 }
+        callRoomId: { type: integer, minimum: 1 }
+        childId: { type: integer, minimum: 1 }
+        childAge: { type: [integer, 'null'], minimum: 3, maximum: 13 }
+        transcript:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: '#/components/schemas/DiaryTranscriptUtterance' }
+        selectedTopics:
+          type: array
+          maxItems: 20
+          default: []
+          items: { $ref: '#/components/schemas/DiarySelectedTopic' }
+        parentMemo: { type: [string, 'null'], maxLength: 5000 }
+        language: { type: string, const: ko-KR, default: ko-KR }
+    DiaryTranscriptUtterance:
+      type: object
+      additionalProperties: false
+      required: [utteranceIndex, speaker, text]
+      properties:
+        utteranceIndex: { type: integer, minimum: 0 }
+        speaker: { type: string, enum: [CHILD, PARENT] }
+        text: { type: string, minLength: 1, maxLength: 1000 }
+    DiarySelectedTopic:
+      type: object
+      additionalProperties: false
+      required: [topicKey, topicName]
+      properties:
+        topicKey: { type: string, minLength: 1, maxLength: 128 }
+        topicName: { type: string, minLength: 1, maxLength: 100 }
+        decision: { type: string, const: CONTINUE, default: CONTINUE }
+        evidenceUtteranceIndexes:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          items: { type: integer, minimum: 0 }
+    DiaryGenerationResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, const: true }
+        data: { $ref: '#/components/schemas/DiaryGenerationData' }
+        error: { type: 'null' }
+    DiaryGenerationData:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - body
+        - modelName
+        - modelRevision
+        - promptVersion
+        - safetyStatus
+        - fallbackUsed
+        - injectionSignalsDetected
+        - groundingFilteredClauseCount
+        - latencyMs
+        - characterCount
+        - gridCapacity
+      properties:
+        requestId: { type: string }
+        body: { type: string, minLength: 1, maxLength: 378 }
+        modelName: { type: string }
+        modelRevision: { type: string }
+        promptVersion: { type: string }
+        safetyStatus: { type: string, enum: [PASSED] }
+        fallbackUsed: { type: boolean, const: false }
+        injectionSignalsDetected: { type: integer, minimum: 0 }
+        groundingFilteredClauseCount: { type: integer, minimum: 0 }
+        latencyMs: { type: integer, minimum: 0 }
+        characterCount: { type: integer, minimum: 1, maximum: 378 }
+        gridCapacity: { type: integer, const: 378 }
