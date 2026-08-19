@@ -154,7 +154,7 @@
 
 | 로그인 화면 | 로그인 GIF |
 | --- | --- |
-| `[화면 추가 예정]` | `[GIF 추가 예정]` |
+| <img src="../docs/assets/로그인 화면.png"> | <img src="../docs/assets/로그인.gif"> |
 
 ## 🛠 기술 스택
 
